@@ -1,36 +1,101 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Button from '@/components/Button/Button';
+import BetService from '@/services/betService';
+import { useGameSocket } from '@/hooks/useGameSocket';
 
 const BettingPanel: React.FC = () => {
+  const { gameState } = useGameSocket();
   const [betAmount, setBetAmount] = useState<number>(0);
+  const [isBetPlaced, setIsBetPlaced] = useState<boolean>(false);
+  const [currentBetId, setCurrentBetId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleBetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setBetAmount(Number(e.target.value));
+    // Prevent changing bet amount after bet is placed
+    if (!isBetPlaced) {
+      const amount = Number(e.target.value);
+      setBetAmount(amount);
+    }
   };
 
-  const placeBet = () => {
-    // Implement bet placement logic
-    console.log(`Placing bet of ${betAmount}`);
+  const placeBet = async () => {
+    // Prevent multiple bet placements
+    if (isBetPlaced) {
+      try {
+        // Cashout logic
+        if (currentBetId) {
+          const cashoutResponse = await BetService.cashOutBet(currentBetId);
+          
+          if (cashoutResponse.success) {
+            setIsBetPlaced(false);
+            setCurrentBetId(null);
+            setBetAmount(0);
+            setError(null);
+          } else {
+            setError(cashoutResponse.message || 'Cashout failed');
+          }
+        }
+      } catch (err) {
+        setError('Failed to cashout');
+        console.error(err);
+      }
+    } else {
+      // Place bet logic
+      try {
+        // Validate bet amount
+        if (betAmount <= 0) {
+          setError('Please enter a valid bet amount');
+          return;
+        }
+
+        const betResponse = await BetService.placeBet(
+          betAmount, 
+          gameState?.gameId
+        );
+        
+        if (betResponse.success) {
+          setIsBetPlaced(true);
+          setCurrentBetId(betResponse.betId || null);
+          setError(null);
+        } else {
+          setError(betResponse.message || 'Bet placement failed');
+        }
+      } catch (err: any) {
+        // Handle specific error scenarios
+        const errorMessage = err.message || 'Failed to place bet';
+        setError(errorMessage);
+        console.error('Bet Placement Error:', err);
+      }
+    }
   };
 
   return (
     <div className="bg-slate-800 rounded-lg p-4">
       <h2 className="text-2xl font-semibold text-white mb-4">Betting Panel</h2>
-      <div className="flex space-x-4">
+      {error && (
+        <div className="text-red-500 mb-4">
+          {error}
+        </div>
+      )}
+      <div className="flex flex-col space-y-4">
         <input 
           type="number" 
           value={betAmount}
           onChange={handleBetChange}
           placeholder="Enter bet amount"
-          className="w-full px-3 py-2 bg-slate-700 text-white rounded"
+          disabled={isBetPlaced}
+          className={`w-full px-3 py-2 bg-slate-700 text-white rounded ${isBetPlaced ? 'opacity-50 cursor-not-allowed' : ''}`}
         />
-        <button 
+        <Button 
           onClick={placeBet}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+          variant={isBetPlaced ? "orange" : "secondary"}
+          size="md"
+          fullWidth
         >
-          Place Bet
-        </button>
+          {isBetPlaced ? 'Cashout' : 'Place Bet'}
+        </Button>
       </div>
     </div>
   );

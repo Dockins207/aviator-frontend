@@ -40,24 +40,14 @@ class GameSocketService {
       'http://localhost:8000',
       'http://127.0.0.1:8000'
     ];
-
-    // Log backend URLs for debugging
-    console.group('[SOCKET] Backend URL Configuration');
-    console.log('Selected Backend URL:', this.baseUrl);
-    console.log('Fallback URLs:', this.backendUrls);
-    console.log('Environment Backend URL:', process.env.NEXT_PUBLIC_BACKEND_URL);
-    console.groupEnd();
   }
 
   // Connect to WebSocket
   connect(): Socket {
     // If socket already exists and is connected, return it
     if (this.socket && this.socket.connected) {
-      console.log('[SOCKET] Reusing existing socket connection');
       return this.socket;
     }
-
-    console.log('[SOCKET] Attempting to connect to:', this.baseUrl);
 
     // Create new socket connection
     this.socket = io(this.baseUrl, {
@@ -73,26 +63,16 @@ class GameSocketService {
       }
     });
 
-    // Enhanced connection logging
+    // Minimal connection logging
     this.socket.on('connect', () => {
-      console.group('[SOCKET] Connection Established');
-      console.log('Connected to:', this.baseUrl);
-      console.log('Socket ID:', this.socket?.id);
-      console.log('Connection Timestamp:', new Date().toISOString());
-      console.groupEnd();
     });
 
-    // Detailed connection error handling
+    // Minimal connection error handling
     this.socket.on('connect_error', (error) => {
-      console.error('[SOCKET] Connection Error:', {
-        message: error.message,
-        name: error.name
-      });
     });
 
     // Connection timeout handling
     this.socket.on('connect_timeout', () => {
-      console.error('[SOCKET] Connection Timeout');
     });
 
     return this.socket;
@@ -106,6 +86,35 @@ class GameSocketService {
     }
   }
 
+  // Get the current socket
+  getSocket(): Socket | null {
+    return this.socket;
+  }
+
+  // Ensure socket is connected before performing operations
+  async ensureConnection(): Promise<Socket> {
+    if (this.socket && this.socket.connected) {
+      return this.socket;
+    }
+
+    return new Promise((resolve, reject) => {
+      this.connect();
+      
+      if (!this.socket) {
+        reject(new Error('Failed to initialize socket'));
+        return;
+      }
+
+      this.socket.on('connect', () => {
+        resolve(this.socket!);
+      });
+
+      this.socket.on('connect_error', (error) => {
+        reject(error);
+      });
+    });
+  }
+
   // Ensure socket is connected before performing actions
   private ensureSocketConnected(): Socket {
     if (!this.socket) {
@@ -117,27 +126,21 @@ class GameSocketService {
   // Join game
   joinGame(playerData: Partial<Player>) {
     const socket = this.ensureSocketConnected();
-    console.group('[SOCKET] Join Game');
-    console.log('Player Data:', JSON.stringify(playerData, null, 2));
-    console.groupEnd();
+    console.log('[SOCKET] Join Game:', JSON.stringify(playerData, null, 2));
     socket.emit('joinGame', playerData);
   }
 
   // Place bet
   placeBet(betData: { betAmount: number }) {
     const socket = this.ensureSocketConnected();
-    console.group('[SOCKET] Place Bet');
-    console.log('Bet Data:', JSON.stringify(betData, null, 2));
-    console.groupEnd();
+    console.log('[SOCKET] Place Bet:', JSON.stringify(betData, null, 2));
     socket.emit('placeBet', betData);
   }
 
   // Cash out
   cashOut() {
     const socket = this.ensureSocketConnected();
-    console.group('[SOCKET] Cash Out');
-    console.log('Cash Out Request');
-    console.groupEnd();
+    console.log('[SOCKET] Cash Out Request');
     socket.emit('cashOut');
   }
 
@@ -145,15 +148,7 @@ class GameSocketService {
   onGameStateUpdate(callback: (gameState: GameState) => void) {
     const socket = this.ensureSocketConnected();
     socket.on('gameStateUpdate', (gameState: GameState) => {
-      console.group('[SOCKET] Game State Update');
-      console.log('Received Game State:', JSON.stringify(gameState, null, 2));
-      console.log('Game Status:', gameState.status);
-      console.log('Game ID:', gameState.gameId);
-      console.log('Players Count:', gameState.players.length);
-      console.log('Multiplier:', gameState.multiplier);
-      console.log('Crash Point:', gameState.crashPoint);
-      console.groupEnd();
-      
+      console.log('[SOCKET] Game State Update:', JSON.stringify(gameState, null, 2));
       // Validate game state before calling callback
       if (this.validateGameState(gameState)) {
         callback(gameState);
@@ -167,10 +162,7 @@ class GameSocketService {
   onJoinGameResponse(callback: (response: { success: boolean; message: string }) => void) {
     const socket = this.ensureSocketConnected();
     socket.on('joinGameResponse', (response) => {
-      console.group('[SOCKET] Join Game Response');
-      console.log('Success:', response.success);
-      console.log('Message:', response.message);
-      console.groupEnd();
+      console.log('[SOCKET] Join Game Response:', JSON.stringify(response, null, 2));
       callback(response);
     });
   }
@@ -179,10 +171,7 @@ class GameSocketService {
   onBetPlacementResponse(callback: (response: { success: boolean; message: string }) => void) {
     const socket = this.ensureSocketConnected();
     socket.on('betPlacementResponse', (response) => {
-      console.group('[SOCKET] Bet Placement Response');
-      console.log('Success:', response.success);
-      console.log('Message:', response.message);
-      console.groupEnd();
+      console.log('[SOCKET] Bet Placement Response:', JSON.stringify(response, null, 2));
       callback(response);
     });
   }
@@ -191,10 +180,7 @@ class GameSocketService {
   onCashOutResponse(callback: (response: { success: boolean; message: string }) => void) {
     const socket = this.ensureSocketConnected();
     socket.on('cashOutResponse', (response) => {
-      console.group('[SOCKET] Cash Out Response');
-      console.log('Success:', response.success);
-      console.log('Message:', response.message);
-      console.groupEnd();
+      console.log('[SOCKET] Cash Out Response:', JSON.stringify(response, null, 2));
       callback(response);
     });
   }

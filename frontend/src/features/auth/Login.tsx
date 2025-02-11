@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Button from '../../components/Button/Button';
 import { login } from '../../services/authService';
 
@@ -7,7 +9,7 @@ const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,9 +17,11 @@ const Login: React.FC = () => {
 
     try {
       const response = await login(email, password);
-      // Store token, redirect to dashboard
-      localStorage.setItem('token', response.token);
-      navigate('/dashboard');
+      // Safely store token
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('token', response.token);
+      }
+      router.push('/dashboard');
     } catch (err) {
       setError('Invalid email or password');
     }
@@ -50,9 +54,8 @@ const Login: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 
-                         rounded-md shadow-sm focus:outline-none 
-                         focus:ring-aviator-primary focus:border-aviator-primary"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-aviator-primary focus:border-aviator-primary"
+              placeholder="Enter your email"
             />
           </div>
           
@@ -69,9 +72,8 @@ const Login: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 
-                         rounded-md shadow-sm focus:outline-none 
-                         focus:ring-aviator-primary focus:border-aviator-primary"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-aviator-primary focus:border-aviator-primary"
+              placeholder="Enter your password"
             />
           </div>
           
@@ -80,17 +82,8 @@ const Login: React.FC = () => {
             variant="primary" 
             fullWidth
           >
-            Sign In
+            Login
           </Button>
-          
-          <div className="text-center mt-4">
-            <a 
-              href="/register" 
-              className="text-sm text-aviator-primary hover:underline"
-            >
-              Don't have an account? Register
-            </a>
-          </div>
         </form>
       </div>
     </div>
