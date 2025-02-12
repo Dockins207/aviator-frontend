@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { Toaster, toast } from 'react-hot-toast';
 import Button from '@/components/Button/Button';
 import BetService from '@/services/betService';
 import { useGameSocket } from '@/hooks/useGameSocket';
@@ -10,7 +11,6 @@ const BettingPanel: React.FC = () => {
   const [betAmount, setBetAmount] = useState<number>(0);
   const [isBetPlaced, setIsBetPlaced] = useState<boolean>(false);
   const [currentBetId, setCurrentBetId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const handleBetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Prevent changing bet amount after bet is placed
@@ -32,13 +32,13 @@ const BettingPanel: React.FC = () => {
             setIsBetPlaced(false);
             setCurrentBetId(null);
             setBetAmount(0);
-            setError(null);
+            toast.success('Bet cashed out successfully');
           } else {
-            setError(cashoutResponse.message || 'Cashout failed');
+            toast.error(cashoutResponse.message || 'Cashout failed');
           }
         }
       } catch (err) {
-        setError('Failed to cashout');
+        toast.error('Failed to cashout');
         console.error(err);
       }
     } else {
@@ -46,7 +46,7 @@ const BettingPanel: React.FC = () => {
       try {
         // Validate bet amount
         if (betAmount <= 0) {
-          setError('Please enter a valid bet amount');
+          toast.error('Please enter a valid bet amount');
           return;
         }
 
@@ -58,14 +58,14 @@ const BettingPanel: React.FC = () => {
         if (betResponse.success) {
           setIsBetPlaced(true);
           setCurrentBetId(betResponse.betId || null);
-          setError(null);
+          toast.success('Bet placed successfully');
         } else {
-          setError(betResponse.message || 'Bet placement failed');
+          toast.error(betResponse.message || 'Bet placement failed');
         }
       } catch (err: any) {
         // Handle specific error scenarios
         const errorMessage = err.message || 'Failed to place bet';
-        setError(errorMessage);
+        toast.error(errorMessage);
         console.error('Bet Placement Error:', err);
       }
     }
@@ -73,12 +73,24 @@ const BettingPanel: React.FC = () => {
 
   return (
     <div className="bg-slate-800 rounded-lg p-4">
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          success: {
+            style: {
+              background: '#4CAF50',
+              color: 'white',
+            },
+          },
+          error: {
+            style: {
+              background: '#F44336',
+              color: 'white',
+            },
+          },
+        }}
+      />
       <h2 className="text-2xl font-semibold text-white mb-4">Betting Panel</h2>
-      {error && (
-        <div className="text-red-500 mb-4">
-          {error}
-        </div>
-      )}
       <div className="flex flex-col space-y-4">
         <input 
           type="number" 

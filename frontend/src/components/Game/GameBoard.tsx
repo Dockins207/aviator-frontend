@@ -1,14 +1,153 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
-import { useGameSocket } from '../../hooks/useGameSocket';
+import io, { Socket } from 'socket.io-client';
+import { AuthService } from '@/app/lib/auth';
 
-// Dynamic rendering to prevent hydration issues
+interface GameState {
+  status: string;
+  multiplier: number;
+  players: any[];
+  totalPlayers: number;
+  totalBetAmount: number;
+  countdown: number;
+  gameId: string | undefined;
+  crashPoint: number | undefined;
+}
+
 const GameBoard: React.FC = () => {
-  const [isClient, setIsClient] = useState(false);
-  const { gameState, isConnected, error } = useGameSocket();
+  const [gameState, setGameState] = useState<GameState>({
+    status: 'idle',
+    multiplier: 1,
+    players: [],
+    totalPlayers: 0,
+    totalBetAmount: 0,
+    countdown: 0,
+    gameId: undefined,
+    crashPoint: undefined
+  });
+  const [gameStateHistory, setGameStateHistory] = useState([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
+  useEffect(() => {
+    // Prevent running on server
+    if (typeof window === 'undefined') return;
+
+    // Get authentication details
+    const token = AuthService.getToken();
+    
+    const initializeSocket = async () => {
+      const profile = await AuthService.getProfile();
+
+      if (!token || !profile) {
+        setConnectionError('Authentication required');
+        return;
+      }
+
+      // Socket connection
+      const backendUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+      const socket = io(backendUrl, {
+        auth: {
+          userId: profile.id,
+          username: profile.username,
+          token: token
+        },
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000
+      });
+
+      // Connection success
+      socket.on('connect', () => {
+        console.log('Socket connected successfully. Socket ID:', socket.id);
+        setIsConnected(true);
+        setConnectionError(null);
+        
+        // Request initial game state
+        socket.emit('requestGameState');
+      });
+
+      // Error handling
+      socket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+        setConnectionError(error.message);
+        setIsConnected(false);
+      });
+
+      // Game state update listener
+      socket.on('gameStateUpdate', (newGameState) => {
+        console.group('🎲 ADVANCED GAME STATE UPDATE 🎲');
+        console.log('Raw Incoming Game State:', JSON.parse(JSON.stringify(newGameState)));
+        console.log('Current Game State:', JSON.parse(JSON.stringify(gameState)));
+        
+        // More aggressive multiplier update logic
+        const updatedMultiplier = 
+          newGameState.multiplier !== undefined 
+            ? Number(newGameState.multiplier) 
+            : gameState.multiplier;
+
+        const updatedState = {
+          ...gameState,
+          ...newGameState,
+          multiplier: updatedMultiplier,
+          // Ensure numeric conversion for critical fields
+          countdown: Number(newGameState.countdown || gameState.countdown),
+          crashPoint: newGameState.crashPoint ? Number(newGameState.crashPoint) : gameState.crashPoint
+        };
+
+        console.log('Diagnostic Update:', {
+          oldMultiplier: gameState.multiplier,
+          newMultiplier: updatedMultiplier,
+          multiplierChanged: gameState.multiplier !== updatedMultiplier
+        });
+
+        setGameState(prevState => {
+          const finalState = {
+            ...prevState,
+            ...updatedState
+          };
+
+          console.log('Final Updated State:', JSON.parse(JSON.stringify(finalState)));
+          console.groupEnd();
+
+          return finalState;
+        });
+      });
+
+      // Disconnection handling
+      socket.on('disconnect', (reason) => {
+        console.warn('Socket disconnected:', reason);
+        setIsConnected(false);
+        setConnectionError(`Disconnected: ${reason}`);
+      });
+
+      // Cleanup on unmount
+      return () => {
+        socket.disconnect();
+      };
+    };
+
+    const socketCleanup = initializeSocket();
+    
+    // Cleanup function
+    return () => {
+      socketCleanup.then(cleanup => cleanup?.());
+    };
+  }, []); // Empty dependency array means run once
+
+  useEffect(() => {
+    if (gameStateHistory.length > 0) {
+      console.group('🕹️ GAME STATE HISTORY TRACKER 🕹️');
+      console.log('Total States Tracked:', gameStateHistory.length);
+      console.log('Latest State:', JSON.parse(JSON.stringify(gameStateHistory[gameStateHistory.length - 1])));
+      console.log('Full History:', JSON.parse(JSON.stringify(gameStateHistory)));
+      console.groupEnd();
+    }
+  }, [gameStateHistory]);
+
+  // Prevent rendering on server
+  const [isClient, setIsClient] = useState(false);
   useEffect(() => {
     setIsClient(true);
   }, []);
@@ -18,17 +157,44 @@ const GameBoard: React.FC = () => {
     return null;
   }
 
-  // Format multiplier safely with more robust parsing
+  // Debug logging
+  console.log('Game Board State:', { 
+    isConnected, 
+    status: gameState.status, 
+    multiplier: gameState.multiplier,
+    error: connectionError
+  });
+
+  // Debug render information
+  console.log('🚀 GameBoard Render Debug:', {
+    status: gameState.status,
+    multiplier: gameState.multiplier,
+    stateHistoryLength: gameStateHistory.length
+  });
+
+  // Render connection status
+  if (!isConnected) {
+    return (
+      <div className="bg-slate-800 rounded-lg p-4 h-[330px] flex flex-col items-center justify-center">
+        <div className="text-gray-500 text-center">
+          {connectionError ? `Connection Error: ${connectionError}` : 'Connecting to game...'}
+        </div>
+      </div>
+    );
+  }
+
+  // Format multiplier safely
   const formatMultiplier = () => {
-    if (!gameState?.multiplier) return '1.00';
-    
-    const multiplier = parseFloat(gameState.multiplier);
-    return isNaN(multiplier) ? '1.00' : multiplier.toFixed(2);
+    // If multiplier is not a number, return a default value
+    if (typeof gameState.multiplier !== 'number') {
+      return '1.00';
+    }
+    return gameState.multiplier.toFixed(2);
   };
 
   // Determine display color based on game status
   const getStatusColor = () => {
-    switch (gameState?.status) {
+    switch (gameState.status) {
       case 'betting':
         return 'text-yellow-500';
       case 'flying':
@@ -42,24 +208,8 @@ const GameBoard: React.FC = () => {
 
   // Render game content based on state
   const renderGameContent = () => {
-    if (error) {
-      return (
-        <div className="text-red-500 mb-4">
-          Error: {error}
-        </div>
-      );
-    }
-
-    if (!isConnected) {
-      return (
-        <div className="text-gray-500">
-          Connecting to game...
-        </div>
-      );
-    }
-
     // Betting state with countdown
-    if (gameState?.status === 'betting' && gameState.countdown !== undefined) {
+    if (gameState.status === 'betting' && gameState.countdown !== undefined) {
       return (
         <div className="flex flex-col items-center">
           <div className="text-4xl font-bold">
@@ -73,7 +223,7 @@ const GameBoard: React.FC = () => {
     }
 
     // Flying state
-    if (gameState?.status === 'flying') {
+    if (gameState.status === 'flying') {
       return (
         <div className={`text-6xl font-bold ${getStatusColor()}`}>
           <span className="text-white">{formatMultiplier()}x</span>
@@ -82,7 +232,7 @@ const GameBoard: React.FC = () => {
     }
 
     // Crashed state
-    if (gameState?.status === 'crashed') {
+    if (gameState.status === 'crashed') {
       return (
         <div className="text-red-500 text-4xl font-bold">
           Crashed @{formatMultiplier()}x
@@ -105,7 +255,4 @@ const GameBoard: React.FC = () => {
   );
 };
 
-// Dynamically import to prevent SSR
-export default dynamic(() => Promise.resolve(GameBoard), {
-  ssr: false
-});
+export default GameBoard;
