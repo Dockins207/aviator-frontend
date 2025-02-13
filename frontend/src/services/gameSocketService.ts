@@ -43,15 +43,11 @@ class GameSocketService {
   private initializeSocket(): Promise<Socket> {
     // If socket initialization is already in progress, return the existing promise
     if (this.socketInitPromise) {
-      console.log('[SOCKET] Existing initialization in progress');
       return this.socketInitPromise;
     }
 
-    console.log('[SOCKET] Starting initialization process');
-    
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-    console.log('[SOCKET] Backend URL:', backendUrl);
-    
+
     // Enhanced user authentication retrieval
     this.socketInitPromise = new Promise(async (resolve, reject) => {
       try {
@@ -59,28 +55,16 @@ class GameSocketService {
         const token = AuthService.getToken();
         const profile = await AuthService.getProfile();
 
-        console.log('[SOCKET] Authentication check:', {
-          tokenExists: !!token,
-          profileExists: !!profile
-        });
-
         if (!token || !profile) {
           const errorMsg = !token ? 'No authentication token' : 'No user profile';
-          console.error(`[SOCKET] ${errorMsg}`);
           throw new Error(errorMsg);
         }
 
         // Ensure previous socket is disconnected
         if (this.socket) {
-          console.log('[SOCKET] Disconnecting previous socket');
           this.socket.disconnect();
         }
 
-        console.log('[SOCKET] Preparing connection with:', {
-          userId: profile.id,
-          username: profile.username
-        });
-        
         // Configure socket connection with authentication
         const socket = io(backendUrl, {
           auth: {
@@ -97,44 +81,35 @@ class GameSocketService {
 
         // Comprehensive event listeners
         socket.on('connect', () => {
-          console.log('[SOCKET] Connected successfully. Socket ID:', socket.id);
           this.socket = socket;
           this.setupGameStateListeners();
           resolve(socket);
         });
 
         socket.on('connect_error', (error) => {
-          console.error('[SOCKET] Connection error:', {
-            name: error.name,
-            message: error.message
-          });
           this.socketInitPromise = null;
           this.socket = null;
           reject(error);
         });
 
         socket.on('connect_timeout', () => {
-          console.error('[SOCKET] Connection timeout');
           this.socketInitPromise = null;
           this.socket = null;
           reject(new Error('Socket connection timeout'));
         });
 
         socket.on('disconnect', (reason) => {
-          console.warn('[SOCKET] Disconnected:', reason);
           this.socketInitPromise = null;
           this.socket = null;
         });
 
         // Add error event listener
         socket.on('error', (error) => {
-          console.error('[SOCKET] Socket error:', error);
           this.socketInitPromise = null;
           this.socket = null;
           reject(error);
         });
       } catch (error) {
-        console.error('[SOCKET] Initialization failed:', error);
         this.socketInitPromise = null;
         this.socket = null;
         reject(error);
@@ -147,7 +122,6 @@ class GameSocketService {
   private setupGameStateListeners() {
     // Ensure socket exists before setting up listeners
     if (!this.socket) {
-      console.warn('Attempted to setup game state listeners without an active socket');
       return;
     }
 
@@ -163,13 +137,9 @@ class GameSocketService {
     // Listen for comprehensive game state updates
     this.socket.on('gameStateUpdate', (state: Partial<GameState>) => {
       if (!state) {
-        console.warn('Received empty game state');
         return;
       }
 
-      console.group('Game State Update');
-      console.log('Raw State:', JSON.stringify(state, null, 2));
-      
       // Merge new state with existing state, preserving players if not provided
       this.gameState = { 
         ...this.gameState, 
@@ -178,9 +148,6 @@ class GameSocketService {
         totalPlayers: state.totalPlayers ?? this.gameState.totalPlayers,
         totalBetAmount: state.totalBetAmount ?? this.gameState.totalBetAmount
       };
-      
-      console.log('Updated Game State:', JSON.stringify(this.gameState, null, 2));
-      console.groupEnd();
 
       // Notify all registered listeners
       this.gameStateListeners.forEach(listener => {
@@ -194,8 +161,6 @@ class GameSocketService {
 
     // Player joined game event
     this.socket.on('playerJoined', (player: Player) => {
-      console.log('Player Joined:', player);
-      
       // Add player to game state if not already present
       const existingPlayerIndex = this.gameState.players.findIndex(p => p.id === player.id);
       if (existingPlayerIndex === -1) {
@@ -212,8 +177,6 @@ class GameSocketService {
 
     // Player left game event
     this.socket.on('playerLeft', (playerId: string) => {
-      console.log('Player Left:', playerId);
-      
       // Remove player from game state
       const updatedPlayers = this.gameState.players.filter(p => p.id !== playerId);
       this.gameState.players = updatedPlayers;
@@ -231,8 +194,6 @@ class GameSocketService {
       playerId: string, 
       betAmount: number 
     }) => {
-      console.log('Player Bet:', betInfo);
-      
       // Update player bet in game state
       const playerIndex = this.gameState.players.findIndex(p => p.id === betInfo.playerId);
       if (playerIndex !== -1) {
@@ -258,8 +219,6 @@ class GameSocketService {
       playerId: string, 
       multiplier: number 
     }) => {
-      console.log('Player Cashout:', cashoutInfo);
-      
       // Update player cashout in game state
       const playerIndex = this.gameState.players.findIndex(p => p.id === cashoutInfo.playerId);
       if (playerIndex !== -1) {
@@ -275,8 +234,6 @@ class GameSocketService {
 
     // Game started event
     this.socket.on('gameStarted', (gameStartData) => {
-      console.log('Game Started:', gameStartData);
-      
       // Reset player statuses and prepare for new game
       const updatedPlayers = this.gameState.players.map(player => ({
         ...player,
@@ -294,8 +251,6 @@ class GameSocketService {
 
     // Game crashed event
     this.socket.on('gameCrashed', (crashPoint) => {
-      console.log('Game Crashed at:', crashPoint);
-      
       // Update player statuses based on crash
       const updatedPlayers = this.gameState.players.map(player => {
         const status = player.cashoutMultiplier && player.cashoutMultiplier < crashPoint 
@@ -320,10 +275,8 @@ class GameSocketService {
   private requestGameState() {
     if (!this.socket) return;
 
-    console.log('Requesting initial game state');
     this.socket.emit('requestGameState', (response: GameState) => {
       if (response) {
-        console.log('Received initial game state:', response);
         this.updateGameState(response);
       } else {
         console.warn('No initial game state received');
@@ -365,8 +318,6 @@ class GameSocketService {
       return;
     }
 
-    console.log('[SOCKET] Place Bet:', JSON.stringify(betData, null, 2));
-    
     this.socket.emit('placeBet', betData, (response: { 
       success: boolean, 
       message?: string, 
@@ -379,7 +330,6 @@ class GameSocketService {
         // Optionally update balance or game state
         if (response.remainingBalance !== undefined) {
           // You might want to dispatch an action or use a state management solution
-          console.log('Updated Balance:', response.remainingBalance);
         }
       } else {
         toast.error(response.message || 'Failed to place bet');
@@ -404,11 +354,9 @@ class GameSocketService {
         toast.success('Bet cashed out successfully');
         
         if (response.winnings !== undefined) {
-          console.log('Winnings:', response.winnings);
         }
         
         if (response.remainingBalance !== undefined) {
-          console.log('Updated Balance:', response.remainingBalance);
         }
       } else {
         toast.error(response.message || 'Failed to cashout bet');
@@ -423,22 +371,14 @@ class GameSocketService {
 
   // Connect to WebSocket (compatibility method)
   connect(): Promise<Socket> {
-    console.log('[SOCKET] Connect method called');
-    
-    // If socket is not initialized, initialize it
     if (!this.socket) {
-      console.log('[SOCKET] No existing socket, initializing');
       return this.initializeSocket();
     }
     
-    // If socket exists and is connected, return it
     if (this.socket.connected) {
-      console.log('[SOCKET] Existing socket is connected');
       return Promise.resolve(this.socket);
     }
     
-    // If socket exists but is not connected, reinitialize
-    console.log('[SOCKET] Existing socket not connected, reinitializing');
     return this.initializeSocket();
   }
 

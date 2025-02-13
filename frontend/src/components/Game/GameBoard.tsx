@@ -60,7 +60,6 @@ const GameBoard: React.FC = () => {
 
       // Connection success
       socket.on('connect', () => {
-        console.log('Socket connected successfully. Socket ID:', socket.id);
         setIsConnected(true);
         setConnectionError(null);
         
@@ -70,17 +69,12 @@ const GameBoard: React.FC = () => {
 
       // Error handling
       socket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
         setConnectionError(error.message);
         setIsConnected(false);
       });
 
       // Game state update listener
       socket.on('gameStateUpdate', (newGameState) => {
-        console.group('🎲 ADVANCED GAME STATE UPDATE 🎲');
-        console.log('Raw Incoming Game State:', JSON.parse(JSON.stringify(newGameState)));
-        console.log('Current Game State:', JSON.parse(JSON.stringify(gameState)));
-        
         // More aggressive multiplier update logic
         const updatedMultiplier = 
           newGameState.multiplier !== undefined 
@@ -96,20 +90,11 @@ const GameBoard: React.FC = () => {
           crashPoint: newGameState.crashPoint ? Number(newGameState.crashPoint) : gameState.crashPoint
         };
 
-        console.log('Diagnostic Update:', {
-          oldMultiplier: gameState.multiplier,
-          newMultiplier: updatedMultiplier,
-          multiplierChanged: gameState.multiplier !== updatedMultiplier
-        });
-
         setGameState(prevState => {
           const finalState = {
             ...prevState,
             ...updatedState
           };
-
-          console.log('Final Updated State:', JSON.parse(JSON.stringify(finalState)));
-          console.groupEnd();
 
           return finalState;
         });
@@ -117,7 +102,6 @@ const GameBoard: React.FC = () => {
 
       // Disconnection handling
       socket.on('disconnect', (reason) => {
-        console.warn('Socket disconnected:', reason);
         setIsConnected(false);
         setConnectionError(`Disconnected: ${reason}`);
       });
@@ -138,11 +122,9 @@ const GameBoard: React.FC = () => {
 
   useEffect(() => {
     if (gameStateHistory.length > 0) {
-      console.group('🕹️ GAME STATE HISTORY TRACKER 🕹️');
-      console.log('Total States Tracked:', gameStateHistory.length);
-      console.log('Latest State:', JSON.parse(JSON.stringify(gameStateHistory[gameStateHistory.length - 1])));
-      console.log('Full History:', JSON.parse(JSON.stringify(gameStateHistory)));
-      console.groupEnd();
+      if (gameStateHistory.length > 10) {
+        setGameStateHistory(prev => prev.slice(-10));
+      }
     }
   }, [gameStateHistory]);
 
@@ -156,21 +138,6 @@ const GameBoard: React.FC = () => {
   if (!isClient) {
     return null;
   }
-
-  // Debug logging
-  console.log('Game Board State:', { 
-    isConnected, 
-    status: gameState.status, 
-    multiplier: gameState.multiplier,
-    error: connectionError
-  });
-
-  // Debug render information
-  console.log('🚀 GameBoard Render Debug:', {
-    status: gameState.status,
-    multiplier: gameState.multiplier,
-    stateHistoryLength: gameStateHistory.length
-  });
 
   // Render connection status
   if (!isConnected) {

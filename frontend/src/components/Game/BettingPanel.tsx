@@ -8,7 +8,7 @@ import { useGameSocket } from '@/hooks/useGameSocket';
 
 const BettingPanel: React.FC = () => {
   const { gameState } = useGameSocket();
-  const [betAmount, setBetAmount] = useState<number>(0);
+  const [betAmount, setBetAmount] = useState<string>('');
   const [isBetPlaced, setIsBetPlaced] = useState<boolean>(false);
   const [currentBetId, setCurrentBetId] = useState<string | null>(null);
 
@@ -16,7 +16,7 @@ const BettingPanel: React.FC = () => {
     // Prevent changing bet amount after bet is placed
     if (!isBetPlaced) {
       const amount = Number(e.target.value);
-      setBetAmount(amount);
+      setBetAmount(amount.toString());
     }
   };
 
@@ -31,7 +31,7 @@ const BettingPanel: React.FC = () => {
           if (cashoutResponse.success) {
             setIsBetPlaced(false);
             setCurrentBetId(null);
-            setBetAmount(0);
+            setBetAmount('');
             toast.success('Bet cashed out successfully');
           } else {
             toast.error(cashoutResponse.message || 'Cashout failed');
@@ -45,13 +45,13 @@ const BettingPanel: React.FC = () => {
       // Place bet logic
       try {
         // Validate bet amount
-        if (betAmount <= 0) {
+        if (betAmount === '') {
           toast.error('Please enter a valid bet amount');
           return;
         }
 
         const betResponse = await BetService.placeBet(
-          betAmount, 
+          Number(betAmount), 
           gameState?.gameId
         );
         
@@ -90,7 +90,6 @@ const BettingPanel: React.FC = () => {
           },
         }}
       />
-      <h2 className="text-2xl font-semibold text-white mb-4">Betting Panel</h2>
       <div className="flex flex-col space-y-4">
         <input 
           type="number" 

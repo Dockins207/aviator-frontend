@@ -68,8 +68,6 @@ class BetService {
       }
 
       console.group('Bet Placement');
-      console.log('Bet Request:', { amount, gameId });
-      console.log('Bet Response:', response.data);
       console.groupEnd();
 
       return response.data;
@@ -98,8 +96,6 @@ class BetService {
       }
 
       console.group('Bet Cashout');
-      console.log('Cashout Request:', { betId });
-      console.log('Cashout Response:', response.data);
       console.groupEnd();
 
       return response.data;
@@ -112,12 +108,10 @@ class BetService {
   // Listen for bet-related socket events
   setupBetListeners() {
     gameSocketService.getSocket()?.on('betPlaced', (data) => {
-      console.log('New bet placed:', data);
       // Handle bet placement notification
     });
 
     gameSocketService.getSocket()?.on('betCashedOut', (data) => {
-      console.log('Bet cashed out:', data);
       // Handle bet cashout notification
     });
   }

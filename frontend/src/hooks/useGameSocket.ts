@@ -30,7 +30,6 @@ export const useGameSocket = () => {
 
     // Connection handler
     const handleConnect = () => {
-      console.log('Socket connected in hook');
       setIsConnected(true);
       setError(null);
 
@@ -46,7 +45,6 @@ export const useGameSocket = () => {
 
     // Disconnection handler
     const handleDisconnect = (reason: string) => {
-      console.log(`Socket disconnected: ${reason}`);
       setIsConnected(false);
       setGameState(prev => ({
         ...prev,
@@ -64,7 +62,6 @@ export const useGameSocket = () => {
 
     // Game state update handler
     const handleGameStateUpdate = (newGameState: Partial<GameState>) => {
-      console.log('Game State Update Received:', newGameState);
       if (newGameState) {
         setGameState(prev => {
           const updatedState = {
@@ -74,7 +71,6 @@ export const useGameSocket = () => {
             totalPlayers: newGameState.totalPlayers ?? prev.totalPlayers,
             totalBetAmount: newGameState.totalBetAmount ?? prev.totalBetAmount
           };
-          console.log('Updated Game State:', updatedState);
           return updatedState;
         });
       }
@@ -136,12 +132,10 @@ export const useGameSocket = () => {
       // Handle promise resolution
       socketPromise
         .then((socket) => {
-          console.log('[HOOK] Socket connected successfully');
           socketRef.current = socket;
 
           // Debugging socket events
           socket.on('connect', () => {
-            console.log('[HOOK] Socket connected with ID:', socket.id);
             setIsConnected(true);
             setError(null);
           });
@@ -183,7 +177,6 @@ export const useGameSocket = () => {
 
   // Reconnection method
   const reconnect = useCallback(() => {
-    console.log('Attempting to reconnect socket');
     if (socketRef.current) {
       try {
         socketRef.current.disconnect();
@@ -202,7 +195,6 @@ export const useGameSocket = () => {
     // Explicit connection attempt
     const connectSocket = async () => {
       try {
-        console.log('[HOOK] Attempting to connect socket');
         const socket = await gameSocketService.connect();
         
         // Setup listeners

@@ -5,14 +5,27 @@ import { useRouter } from 'next/navigation';
 import { AuthService } from '@/app/lib/auth';
 import Link from 'next/link';
 import BalanceDisplay from './BalanceDisplay';
+import toast from 'react-hot-toast'; // Import toast if not already imported
 
 const GameDashboardHeader: React.FC = () => {
   const router = useRouter();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const handleLogout = () => {
-    AuthService.logout();
-    router.push('/');  // Redirect to index page
+  const handleLogout = async () => {
+    try {
+      const logoutSuccess = await AuthService.logout();
+      
+      if (logoutSuccess) {
+        // Redirect to login page after successful logout
+        router.push('/login');
+      } else {
+        // Show error toast or message if logout fails
+        toast.error('Logout failed. Please try again.');
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('An unexpected error occurred during logout.');
+    }
   };
 
   const toggleMenu = () => {

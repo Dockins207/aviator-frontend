@@ -18,32 +18,57 @@ export default function LoginPage() {
     }
   }, [router]);
 
+  const validatePhoneNumber = (phone: string): boolean => {
+    // Support formats: +254712345678, 0712345678, 0112345678
+    const phoneRegex = /^(\+?254|0)1?[17]\d{8}$/;
+    return phoneRegex.test(phone);
+  };
+
+  const validatePassword = (pass: string): boolean => {
+    // At least 8 characters, must include:
+    // - At least one uppercase letter
+    // - At least one lowercase letter
+    // - At least one number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    return passwordRegex.test(pass);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
+    // Validate phone number
+    if (!validatePhoneNumber(phoneNumber)) {
+      setError('Invalid phone number. Must be in Kenyan format (+254 or 07XXXXXXXX)');
+      return;
+    }
+
+    // Validate password
+    if (!validatePassword(password)) {
+      setError('Password must be at least 8 characters long and include uppercase, lowercase, and number');
+      return;
+    }
+
     try {
-      console.log('Attempting login with:', { phoneNumber });
       const loginResponse = await AuthService.login({ phoneNumber, password });
       
-      console.log('Login response:', loginResponse);
+      // Destructure user details from login response
+      const { user } = loginResponse;
       
-      // Additional verification of token
-      const token = AuthService.getToken();
-      console.log('Token after login:', token);
+      // Optional: Log user details or perform additional actions
+      console.log('Logged in user:', user);
       
-      if (!token) {
-        throw new Error('No token received after login');
-      }
-      
+      // Redirect to dashboard
       router.push('/game-dashboard');
     } catch (err: any) {
+      // Detailed error logging
       console.error('Login Error Details:', {
         message: err.message,
         response: err.response?.data,
         status: err.response?.status
       });
       
+      // Provide user-friendly error message
       setError(
         err.response?.data?.message || 
         err.message || 
@@ -72,7 +97,7 @@ export default function LoginPage() {
                 type="tel"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Phone Number"
+                placeholder="Phone Number (+254 or 07XXXXXXXX)"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
               />

@@ -6,47 +6,46 @@ const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.0.12:800
 // Configure Axios with CORS and error handling
 const axiosInstance = axios.create({
   baseURL: BASE_URL,
-  withCredentials: true,  // Important for CORS cookies
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
   },
-  timeout: 10000,  // 10 seconds timeout
+  timeout: 10000,
 });
 
-// Add a request interceptor to handle errors
-axiosInstance.interceptors.request.use(
-  (config) => {
-    const token = AuthService.getToken();
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    console.error('Request Interceptor Error:', error);
-    return Promise.reject(error);
-  }
-);
+// Validation Utilities
+const validatePhoneNumber = (phoneNumber: string): boolean => {
+  // Support formats: +254712345678, 0712345678, 0112345678
+  const phoneRegex = /^(\+?254|0)1?[17]\d{8}$/;
+  return phoneRegex.test(phoneNumber);
+};
 
-// Add a response interceptor to handle errors
-axiosInstance.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response) {
-      // The request was made and the server responded with a status code
-      console.error('Server Error:', error.response.data);
-      console.error('Status Code:', error.response.status);
-    } else if (error.request) {
-      // The request was made but no response was received
-      console.error('Network Error: No response received', error.request);
-    } else {
-      // Something happened in setting up the request
-      console.error('Error:', error.message);
-    }
-    return Promise.reject(error);
+const normalizePhoneNumber = (phoneNumber: string): string => {
+  // Remove any spaces or dashes
+  phoneNumber = phoneNumber.replace(/[\s-]/g, '');
+  
+  // If it starts with 0, replace with +254
+  if (phoneNumber.startsWith('0')) {
+    return '+254' + phoneNumber.slice(1);
   }
-);
+  
+  // If it starts with 254, add +
+  if (phoneNumber.startsWith('254')) {
+    return '+' + phoneNumber;
+  }
+  
+  return phoneNumber;
+};
+
+const validatePassword = (password: string): boolean => {
+  // At least 8 characters, must include:
+  // - At least one uppercase letter
+  // - At least one lowercase letter
+  // - At least one number
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+  return passwordRegex.test(password);
+};
 
 // Interfaces
 export interface RegisterData {
@@ -61,36 +60,31 @@ export interface LoginData {
 }
 
 export interface UserProfile {
-  id?: string;
+  user_id: string;
   username: string;
-  phoneNumber: string;
+  phone_number: string;
+  role: string;
 }
 
-export interface UpdateProfileData {
-  username: string;
-  phoneNumber: string;
+export interface WalletBalanceResponse {
+  balance: number;
+  currency: string;
 }
 
 // Authentication Service
 export class AuthService {
   // Client-side token storage
   static getToken(): string | null {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    console.log('Getting token:', token ? 'Token exists' : 'No token found');
-    return token;
+    return typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   }
 
   private static setToken(token: string): void {
     if (typeof window !== 'undefined') {
-      console.log('Setting token:', token ? 'Token provided' : 'No token');
       try {
         localStorage.setItem('token', token);
-        console.log('Token successfully stored in localStorage');
       } catch (error) {
         console.error('Failed to store token in localStorage:', error);
       }
-    } else {
-      console.warn('Attempted to set token on server-side');
     }
   }
 
@@ -100,12 +94,27 @@ export class AuthService {
     }
   }
 
-  // Register a new user
+  // Register a new user with enhanced validation
   static async register(userData: RegisterData) {
+    // Validate input
+    if (userData.username.length < 3) {
+      throw new Error('Username must be at least 3 characters long');
+    }
+
+    if (!validatePhoneNumber(userData.phoneNumber)) {
+      throw new Error('Invalid phone number. Must be in Kenyan format (+254 or 0712345678)');
+    }
+
+    if (!validatePassword(userData.password)) {
+      throw new Error('Password must be at least 8 characters long and include uppercase, lowercase, and number');
+    }
+
     try {
-      console.log('Attempting to register new user');
-      const response = await axiosInstance.post('/api/auth/register', userData);
-      console.log('User registered:', response.data);
+      const response = await axiosInstance.post('/api/auth/register', {
+        username: userData.username,
+        phoneNumber: normalizePhoneNumber(userData.phoneNumber),
+        password: userData.password
+      });
       return response.data;
     } catch (error: any) {
       console.error('Registration Error:', error.response?.data || error.message);
@@ -113,26 +122,26 @@ export class AuthService {
     }
   }
 
-  // Login user
+  // Login user with precise error handling
   static async login(credentials: LoginData) {
-    try {
-      console.log('Attempting to login user with phone:', credentials.phoneNumber);
-      const response = await axiosInstance.post('/api/auth/login', credentials);
-      
-      console.log('Login API Response:', {
-        status: response.status,
-        data: response.data
-      });
+    // Validate input
+    if (!validatePhoneNumber(credentials.phoneNumber)) {
+      throw new Error('Invalid phone number format');
+    }
 
-      // Store token if available
+    try {
+      const response = await axiosInstance.post('/api/auth/login', {
+        phoneNumber: normalizePhoneNumber(credentials.phoneNumber),
+        password: credentials.password
+      });
+      
+      // Store token and extract user details
       if (response.data.token) {
-        console.log('Token received from login response');
         this.setToken(response.data.token);
       } else {
-        console.warn('No token found in login response');
+        throw new Error('No authentication token received');
       }
       
-      console.log('User logged in:', response.data);
       return response.data;
     } catch (error: any) {
       console.error('Login Error:', {
@@ -145,63 +154,225 @@ export class AuthService {
   }
 
   // Logout user
-  static async logout() {
+  static async logout(): Promise<boolean> {
     try {
-      console.log('Attempting to logout user');
       const token = this.getToken();
       
-      if (token) {
-        await axiosInstance.post('/api/auth/logout');
+      // If no token, consider logout successful
+      if (!token) {
+        console.warn('No token found during logout');
+        this.removeToken();
+        return true;
       }
-      
-      // Remove token
+
+      // Attempt to call logout endpoint
+      const response = await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      // Always remove token, regardless of server response
       this.removeToken();
-      console.log('User logged out');
+
+      return true;
     } catch (error: any) {
-      console.error('Logout Error:', error.response?.data || error.message);
-      this.removeToken(); // Always remove token even if logout request fails
+      console.error('Logout Error:', {
+        message: error.response?.data?.message || error.message,
+        status: error.response?.status
+      });
+
+      // Always remove token, even if logout request fails
+      this.removeToken();
+
+      return false;
     }
   }
 
   // Get user profile
   static async getProfile(): Promise<UserProfile | null> {
     try {
-      console.log('Attempting to retrieve user profile');
       const token = this.getToken();
-      
       if (!token) {
-        console.warn('No token found when retrieving profile');
+        console.error('No authentication token found');
         return null;
       }
+
+      const response = await axios.get(`${BASE_URL}/api/auth/profile`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      // Handle nested response structure
+      if (response.data && response.data.status === 'success' && response.data.data) {
+        const { data } = response.data;
+        return {
+          user_id: data.user_id,
+          username: data.username,
+          phone_number: data.phone_number,
+          role: data.role
+        };
+      }
       
-      const response = await axiosInstance.get('/api/auth/profile');
-      console.log('User profile retrieved:', response.data);
-      return response.data;
+      console.error('Invalid profile response structure');
+      return null;
     } catch (error: any) {
       console.error('Profile Fetch Error:', {
         message: error.response?.data || error.message,
-        status: error.response?.status,
-        headers: error.response?.headers
+        status: error.response?.status
       });
+      
+      // If token is invalid or expired, remove it
+      if (error.response?.status === 401) {
+        this.removeToken();
+      }
+      
+      return null;
+    }
+  }
+
+  // Get wallet balance
+  static async getWalletBalance(): Promise<WalletBalanceResponse | null> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        console.error('No authentication token found');
+        return null;
+      }
+
+      const response = await axios.get(`${BASE_URL}/api/auth/profile/balance`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      // Validate response structure
+      if (response.data && 
+          typeof response.data.balance === 'number' && 
+          typeof response.data.currency === 'string') {
+        return {
+          balance: response.data.balance,
+          currency: response.data.currency
+        };
+      }
+      
+      console.warn('Invalid wallet balance response structure');
+      return null;
+    } catch (error: any) {
+      console.error('Wallet Balance Fetch Error:', {
+        message: error.response?.data?.message || error.message,
+        status: error.response?.status
+      });
+      
+      // If token is invalid or expired, remove it
+      if (error.response?.status === 401) {
+        this.removeToken();
+      }
+      
       return null;
     }
   }
 
   // Update user profile
-  static async updateProfile(profileData: UpdateProfileData): Promise<UserProfile | null> {
+  static async updateProfile(profileData: { username: string; phoneNumber: string }): Promise<UserProfile | null> {
     try {
-      console.log('Attempting to update user profile');
       const token = this.getToken();
-      
       if (!token) {
-        throw new Error('No authentication token found');
+        console.error('No authentication token found');
+        return null;
       }
-      
-      const response = await axiosInstance.put('/api/auth/profile', profileData);
-      console.log('User profile updated:', response.data);
+
+      // Validate input
+      if (profileData.username.length < 3) {
+        throw new Error('Username must be at least 3 characters long');
+      }
+
+      if (!validatePhoneNumber(profileData.phoneNumber)) {
+        throw new Error('Invalid phone number. Must be in Kenyan format (+254 or 0712345678)');
+      }
+
+      const response = await axios.put(`${BASE_URL}/api/auth/profile`, {
+        username: profileData.username,
+        phoneNumber: normalizePhoneNumber(profileData.phoneNumber)
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
       return response.data;
     } catch (error: any) {
-      console.error('Profile Update Error:', error.response?.data || error.message);
+      console.error('Profile Update Error:', {
+        message: error.response?.data || error.message,
+        status: error.response?.status
+      });
+      
+      // If token is invalid or expired, remove it
+      if (error.response?.status === 401) {
+        this.removeToken();
+      }
+      
+      throw error;
+    }
+  }
+
+  // Deposit funds
+  static async depositFunds(amount: number, paymentMethod: string = 'M-PESA', currency: string = 'KSH'): Promise<{
+    status: string;
+    transactionId: string;
+    amount: number;
+    newBalance: number;
+  }> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+
+      const response = await axios.post(`${BASE_URL}/api/auth/profile/deposit`, 
+        { amount, currency, paymentMethod },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Deposit Funds Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  // Withdraw funds
+  static async withdrawFunds(amount: number, paymentMethod: string = 'M-PESA', currency: string = 'KSH'): Promise<{
+    status: string;
+    transactionId: string;
+    amount: number;
+    newBalance: number;
+  }> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+
+      const response = await axios.post(`${BASE_URL}/api/auth/profile/withdraw`, 
+        { amount, currency, paymentMethod },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Withdraw Funds Error:', error.response?.data || error.message);
       throw error;
     }
   }
@@ -209,14 +380,5 @@ export class AuthService {
   // Check if user is authenticated
   static isAuthenticated(): boolean {
     return !!this.getToken();
-  }
-
-  // Utility method to get axios instance with auth headers
-  static getAuthenticatedAxios() {
-    const token = this.getToken();
-    return axios.create({
-      baseURL: BASE_URL,
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-    });
   }
 }
