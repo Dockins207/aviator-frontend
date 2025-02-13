@@ -68,7 +68,7 @@ class GameSocketService {
         // Configure socket connection with authentication
         const socket = io(backendUrl, {
           auth: {
-            userId: profile.id,
+            userId: profile.user_id,
             username: profile.username,
             token: token
           },

@@ -14,15 +14,13 @@ const BalanceDisplay: React.FC = () => {
         setBalance(balanceData.balance);
         setCurrency(balanceData.currency);
       } else {
-        // Reset balance if no data is returned
+        // Reset balance if no data is returned, but keep original currency
         setBalance(0);
-        setCurrency('USD');
       }
     } catch (error) {
       console.error('Balance fetch failed:', error);
-      // Reset balance on error
+      // Reset balance on error, but keep original currency
       setBalance(0);
-      setCurrency('USD');
     } finally {
       setLoading(false);
     }

@@ -1,118 +1,194 @@
 import axios, { AxiosError } from 'axios';
-import gameSocketService from './gameSocketService'; // Using existing socket service
+import gameSocketService from './gameSocketService';
+import { AuthService } from '@/app/lib/auth';
 
-// Restore the original backend URL for the remote machine
-const BACKEND_URL = 'http://192.168.0.12:8000';
+// Use environment variable for backend URL
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 export interface BetRequest {
   amount: number;
-  gameId?: string;
 }
 
 export interface BetResponse {
   success: boolean;
-  betId?: string;
-  message?: string;
-  winnings?: number;
+  betId?: string | null;
+  message?: string | null;
+  winnings?: number | null;
 }
 
 class BetService {
   private baseUrl = `${BACKEND_URL}/api/bet`; // Use full backend URL
 
-  private axiosInstance = axios.create({
-    baseURL: this.baseUrl,
-    withCredentials: true,
-    timeout: 10000, // 10-second timeout
-  });
-
   // Centralized error handling
-  private handleError(error: AxiosError, context: string) {
+  private handleError(error: AxiosError<{ message?: string }>, context: string): BetResponse {
+    console.error(`Error in ${context}:`, error);
+    
+    // Log full error object for comprehensive debugging
+    console.error('Full Error Object:', error);
+    console.error('=== END OF DETAILED ERROR LOGGING ===');
+    
+    // Check if the error is from a failed request
     if (error.response) {
       // Server responded with an error status
-      console.error(`${context} - Server Error:`, {
-        status: error.response.status,
-        data: error.response.data
-      });
+      return {
+        success: false,
+        message: error.response.data?.message || 'An unexpected server error occurred',
+        betId: null,
+        winnings: null
+      };
     } else if (error.request) {
-      // Request made but no response received
-      console.error(`${context} - Network Error:`, {
-        url: error.config?.url,
-        method: error.config?.method,
-        networkError: error.message
-      });
+      // Request was made but no response received
+      return {
+        success: false,
+        message: 'No response from server. Please check your internet connection.',
+        betId: null,
+        winnings: null
+      };
     } else {
       // Error setting up the request
-      console.error(`${context} - Request Setup Error:`, error.message);
+      return {
+        success: false,
+        message: error.message || 'Error setting up the request',
+        betId: null,
+        winnings: null
+      };
     }
-    throw error;
+  }
+
+  // Notification system
+  private showNotification(message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') {
+    // Create a toast-like notification
+    const notificationContainer = document.createElement('div');
+    notificationContainer.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg transition-all duration-300 
+      ${type === 'success' ? 'bg-green-500 text-white' : 
+        type === 'error' ? 'bg-red-500 text-white' : 
+        type === 'info' ? 'bg-blue-500 text-white' : 
+        'bg-blue-500 text-white'}`;
+    notificationContainer.textContent = message;
+    
+    document.body.appendChild(notificationContainer);
+    
+    // Automatically remove notification after 3 seconds
+    setTimeout(() => {
+      notificationContainer.classList.add('opacity-0', 'translate-x-full');
+      setTimeout(() => {
+        document.body.removeChild(notificationContainer);
+      }, 300);
+    }, 3000);
   }
 
   // Place a bet
-  async placeBet(amount: number, gameId?: string): Promise<BetResponse> {
+  async placeBet(amount: number): Promise<BetResponse> {
+    console.log('Attempting to place bet with amount:', amount);
+
     try {
-      const response = await this.axiosInstance.post<BetResponse>('/place', {
-        amount,
-        gameId,
-        user: 'currentUser' // TODO: Replace with actual user logic
-      });
+      // Get the authentication token
+      const token = AuthService.getToken();
 
-      // Ensure socket connection before emitting event
-      try {
-        await gameSocketService.ensureConnection();
-        gameSocketService.getSocket()?.emit('betPlaced', {
-          amount,
-          betId: response.data.betId
-        });
-      } catch (socketError) {
-        console.warn('Could not emit bet placed event:', socketError);
-      }
-
-      console.group('Bet Placement');
-      console.groupEnd();
+      // Make the API call to the specific bet placement endpoint
+      const response = await axios.post<BetResponse>(`${this.baseUrl}/place`, 
+        { amount }, 
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       return response.data;
     } catch (error) {
-      this.handleError(error as AxiosError, 'Bet Placement');
-      throw error;
+      // Use the existing error handling method
+      return this.handleError(error as AxiosError<{ message?: string }>, 'placeBet');
     }
   }
 
   // Cash out a bet
   async cashOutBet(betId: string): Promise<BetResponse> {
+    console.log('Attempting to cash out bet:', betId);
+
     try {
-      const response = await this.axiosInstance.post<BetResponse>('/cashout', {
-        betId
-      });
+      // Get the authentication token
+      const token = AuthService.getToken();
 
-      // Ensure socket connection before emitting event
-      try {
-        await gameSocketService.ensureConnection();
-        gameSocketService.getSocket()?.emit('betCashedOut', {
-          betId,
-          winnings: response.data.winnings
-        });
-      } catch (socketError) {
-        console.warn('Could not emit bet cashout event:', socketError);
-      }
+      const response = await axios.post<BetResponse>(`${this.baseUrl}/cashout`, 
+        { betId }, 
+        { 
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
+      );
 
-      console.group('Bet Cashout');
-      console.groupEnd();
-
-      return response.data;
+      // Ensure a complete response object
+      return {
+        success: response.data.success ?? false,
+        betId: response.data.betId ?? null,
+        message: response.data.message ?? null,
+        winnings: response.data.winnings ?? null
+      };
     } catch (error) {
-      this.handleError(error as AxiosError, 'Bet Cashout');
-      throw error;
+      // Use the existing error handling method
+      this.handleError(error as AxiosError<{ message?: string }>, 'cashOutBet');
+      
+      // Return a default error response
+      return {
+        success: false,
+        message: 'Failed to cash out bet',
+        betId: null,
+        winnings: null
+      };
     }
   }
 
   // Listen for bet-related socket events
   setupBetListeners() {
-    gameSocketService.getSocket()?.on('betPlaced', (data) => {
-      // Handle bet placement notification
+    const socket = gameSocketService.getSocket();
+    if (!socket) return;
+
+    // Bet placement confirmation
+    socket.on('betPlaced', (data: { 
+      success: boolean, 
+      betId: string, 
+      amount: number, 
+      message?: string 
+    }) => {
+      if (data.success) {
+        this.showNotification(`Bet of $${data.amount} placed successfully. Bet ID: ${data.betId}`, 'success');
+      } else {
+        this.showNotification(data.message || 'Bet placement failed', 'error');
+      }
     });
 
-    gameSocketService.getSocket()?.on('betCashedOut', (data) => {
-      // Handle bet cashout notification
+    // Bet cashout confirmation
+    socket.on('betCashedOut', (data: { 
+      success: boolean, 
+      betId: string, 
+      winnings?: number, 
+      message?: string 
+    }) => {
+      if (data.success) {
+        this.showNotification(
+          data.winnings 
+            ? `Cashed out successfully! Winnings: $${data.winnings}` 
+            : 'Bet cashed out successfully', 
+          'success'
+        );
+      } else {
+        this.showNotification(data.message || 'Cashout failed', 'error');
+      }
+    });
+
+    // Game crash event
+    socket.on('gameCrashed', (data: { 
+      crashPoint: number, 
+      message?: string 
+    }) => {
+      this.showNotification(
+        `Game crashed at ${data.crashPoint}x`, 
+        'warning'
+      );
     });
   }
 }

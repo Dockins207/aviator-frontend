@@ -49,7 +49,7 @@ const GameBoard: React.FC = () => {
       const backendUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
       const socket = io(backendUrl, {
         auth: {
-          userId: profile.id,
+          userId: profile.user_id,
           username: profile.username,
           token: token
         },
@@ -75,6 +75,7 @@ const GameBoard: React.FC = () => {
 
       // Game state update listener
       socket.on('gameStateUpdate', (newGameState) => {
+
         // More aggressive multiplier update logic
         const updatedMultiplier = 
           newGameState.multiplier !== undefined 
