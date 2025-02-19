@@ -1,0 +1,14 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_FLAGS = "--version"
+  NEXT_PUBLIC_BACKEND_URL = "${NEXT_PUBLIC_BACKEND_URL}"
+  NEXT_PUBLIC_WEBSOCKET_URL = "${NEXT_PUBLIC_WEBSOCKET_URL}"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,6 +1,7 @@
 import io, { Socket } from 'socket.io-client';
 import { toast } from 'react-hot-toast';
 import { AuthService } from '@/app/lib/auth';
+import WalletService from '@/services/walletService'; // Corrected import
 
 // Player interface for game participants
 export interface Player {
@@ -46,74 +47,55 @@ class GameSocketService {
       return this.socketInitPromise;
     }
 
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.0.12:8000';
 
-    // Enhanced user authentication retrieval
-    this.socketInitPromise = new Promise(async (resolve, reject) => {
-      try {
-        // Verify authentication details
-        const token = AuthService.getToken();
-        const profile = await AuthService.getProfile();
+    this.socketInitPromise = new Promise((resolve, reject) => {
+      // Get the JWT token from AuthService
+      const token = AuthService.getToken();
 
-        if (!token || !profile) {
-          const errorMsg = !token ? 'No authentication token' : 'No user profile';
-          throw new Error(errorMsg);
+      if (!token) {
+        reject(new Error('No authentication token found'));
+        return;
+      }
+
+      // Create socket with token in auth object
+      const socket = io(backendUrl, {
+        auth: {
+          token: token
         }
+      });
 
-        // Ensure previous socket is disconnected
-        if (this.socket) {
-          this.socket.disconnect();
-        }
+      socket.on('connect', () => {
+        console.log('Game socket connected successfully');
+        this.socket = socket;
+        this.setupGameStateListeners();
+        resolve(socket);
+      });
 
-        // Configure socket connection with authentication
-        const socket = io(backendUrl, {
-          auth: {
-            userId: profile.user_id,
-            username: profile.username,
-            token: token
-          },
-          reconnection: true,
-          reconnectionAttempts: 5,
-          reconnectionDelay: 1000,
-          timeout: 10000,
-          transports: ['websocket', 'polling']  // Explicit transport specification
-        });
-
-        // Comprehensive event listeners
-        socket.on('connect', () => {
-          this.socket = socket;
-          this.setupGameStateListeners();
-          resolve(socket);
-        });
-
-        socket.on('connect_error', (error) => {
-          this.socketInitPromise = null;
-          this.socket = null;
-          reject(error);
-        });
-
-        socket.on('connect_timeout', () => {
-          this.socketInitPromise = null;
-          this.socket = null;
-          reject(new Error('Socket connection timeout'));
-        });
-
-        socket.on('disconnect', (reason) => {
-          this.socketInitPromise = null;
-          this.socket = null;
-        });
-
-        // Add error event listener
-        socket.on('error', (error) => {
-          this.socketInitPromise = null;
-          this.socket = null;
-          reject(error);
-        });
-      } catch (error) {
+      socket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
         this.socketInitPromise = null;
         this.socket = null;
         reject(error);
-      }
+      });
+
+      socket.on('connect_timeout', () => {
+        this.socketInitPromise = null;
+        this.socket = null;
+        reject(new Error('Socket connection timeout'));
+      });
+
+      socket.on('disconnect', (reason) => {
+        this.socketInitPromise = null;
+        this.socket = null;
+      });
+
+      // Add error event listener
+      socket.on('error', (error) => {
+        this.socketInitPromise = null;
+        this.socket = null;
+        reject(error);
+      });
     });
 
     return this.socketInitPromise;
@@ -369,6 +351,12 @@ class GameSocketService {
     return this.gameState;
   }
 
+  // Get the current game multiplier
+  getCurrentMultiplier(): number | undefined {
+    // Return the current multiplier from the latest game state
+    return this.gameState.multiplier;
+  }
+
   // Connect to WebSocket (compatibility method)
   connect(): Promise<Socket> {
     if (!this.socket) {
@@ -421,6 +409,53 @@ class GameSocketService {
   // Get current socket instance
   getSocket() {
     return this.socket;
+  }
+
+  // Retrieve current user's balance
+  async getCurrentBalance(): Promise<number> {
+    try {
+      // Use WalletService to fetch balance
+      const walletBalance = await WalletService.getWalletBalance();
+      
+      if (!walletBalance) {
+        console.warn('🚨 Unable to retrieve wallet balance');
+        return 0;
+      }
+
+      // Log balance retrieval for diagnostics
+      console.group('💰 Game Socket Balance Retrieval');
+      console.log('Balance:', walletBalance.balance);
+      console.log('User ID:', walletBalance.user_id);
+      console.groupEnd();
+
+      return walletBalance.balance;
+    } catch (error) {
+      console.error('Failed to retrieve balance in GameSocketService:', error);
+      return 0;
+    }
+  }
+
+  // Optional: Subscribe to balance updates
+  subscribeToBalanceUpdates(callback: (balance: number) => void): () => void {
+    const balanceUpdateCallback = async () => {
+      try {
+        const balance = await this.getCurrentBalance();
+        callback(balance);
+      } catch (error) {
+        console.error('Error in balance update subscription:', error);
+      }
+    };
+
+    // Initial balance fetch
+    balanceUpdateCallback();
+
+    // Use WalletService's wallet update subscription
+    const unsubscribe = WalletService.subscribeToWalletUpdates((update) => {
+      callback(update.balance);
+    });
+
+    // Return unsubscribe function
+    return unsubscribe;
   }
 }
 

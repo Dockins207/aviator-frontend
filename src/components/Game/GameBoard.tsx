@@ -143,7 +143,7 @@ const GameBoard: React.FC = () => {
   // Render connection status
   if (!isConnected) {
     return (
-      <div className="bg-slate-800 rounded-lg p-4 h-[330px] flex flex-col items-center justify-center">
+      <div className="bg-black rounded-lg p-4 h-[330px] flex flex-col items-center justify-center">
         <div className="text-gray-500 text-center">
           {connectionError ? `Connection Error: ${connectionError}` : 'Connecting to game...'}
         </div>
@@ -217,7 +217,7 @@ const GameBoard: React.FC = () => {
   };
 
   return (
-    <div className="bg-slate-800 rounded-lg p-4 h-[330px] flex flex-col items-center justify-center">
+    <div className="bg-black rounded-lg p-4 h-[330px] flex flex-col items-center justify-center">
       {renderGameContent()}
     </div>
   );

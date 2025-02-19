@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Base URL from environment
+// Base URL from environment with fallback
 const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.0.12:8000';
 
 // Configure Axios with CORS and error handling
@@ -67,30 +67,151 @@ export interface UserProfile {
 }
 
 export interface WalletBalanceResponse {
+  user_id: string;
   balance: number;
   currency: string;
+  formattedBalance: string;
 }
 
 // Authentication Service
 export class AuthService {
-  // Client-side token storage
+  // Enhanced token management methods
+  private static getValidToken(): string | null {
+    try {
+      // Ensure we're in a browser environment
+      if (typeof window === 'undefined') {
+        return null;
+      }
+
+      // Check multiple storage locations
+      const storageLocations = [
+        () => localStorage.getItem('token'),
+        () => sessionStorage.getItem('token'),
+        // Add more storage locations if needed
+      ];
+
+      for (const getToken of storageLocations) {
+        const token = getToken();
+        
+        // Validate token if found
+        if (token && this.validateToken(token)) {
+          return token;
+        }
+      }
+
+      // No valid token found
+      return null;
+    } catch (error) {
+      console.warn('🚨 Token Retrieval Error:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      return null;
+    }
+  }
+
+  // Enhanced token validation
+  static validateToken(token: string | null): boolean {
+    // Basic validation checks
+    if (!token) {
+      console.warn('🚨 Token Validation Failed: No token provided');
+      return false;
+    }
+
+    try {
+      // Check token structure
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        console.warn('🚨 Token Validation Failed: Invalid token structure', {
+          tokenLength: token.length,
+          tokenParts: parts.length
+        });
+        return false;
+      }
+
+      // Optional: Decode and check expiration
+      const base64Payload = parts[1];
+      const payload = JSON.parse(atob(base64Payload));
+      
+      // Check token expiration
+      if (payload.exp) {
+        const currentTime = Math.floor(Date.now() / 1000);
+        if (payload.exp < currentTime) {
+          console.warn('🚨 Token Validation Failed: Token expired');
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.warn('🚨 Token Validation Error:', {
+        message: error instanceof Error ? error.message : 'Unknown validation error',
+        timestamp: new Date().toISOString()
+      });
+      return false;
+    }
+  }
+
+  // Modify existing getToken method
   static getToken(): string | null {
-    return typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return this.getValidToken();
   }
 
   private static setToken(token: string): void {
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem('token', token);
+        console.log('Token set successfully:', {
+          tokenLength: token.length,
+          tokenFirstChars: token.substring(0, 10)
+        });
       } catch (error) {
         console.error('Failed to store token in localStorage:', error);
       }
     }
   }
 
-  private static removeToken(): void {
+  // Public method to remove token
+  static removeToken(): void {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token');
+      console.log('Token removed from localStorage');
+    }
+  }
+
+  // Logout user
+  static async logout(): Promise<boolean> {
+    try {
+      const token = this.getToken();
+      
+      // If no token, consider logout successful
+      if (!token) {
+        console.warn('No token found during logout');
+        this.removeToken();
+        return true;
+      }
+
+      // Attempt to call logout endpoint
+      const response = await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      // Always remove token, regardless of server response
+      this.removeToken();
+
+      return true;
+    } catch (error: any) {
+      console.error('Logout Error:', {
+        message: error.response?.data?.message || error.message,
+        status: error.response?.status
+      });
+
+      // Always remove token, even if logout request fails
+      this.removeToken();
+
+      return false;
     }
   }
 
@@ -153,42 +274,6 @@ export class AuthService {
     }
   }
 
-  // Logout user
-  static async logout(): Promise<boolean> {
-    try {
-      const token = this.getToken();
-      
-      // If no token, consider logout successful
-      if (!token) {
-        console.warn('No token found during logout');
-        this.removeToken();
-        return true;
-      }
-
-      // Attempt to call logout endpoint
-      const response = await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      // Always remove token, regardless of server response
-      this.removeToken();
-
-      return true;
-    } catch (error: any) {
-      console.error('Logout Error:', {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status
-      });
-
-      // Always remove token, even if logout request fails
-      this.removeToken();
-
-      return false;
-    }
-  }
-
   // Get user profile
   static async getProfile(): Promise<UserProfile | null> {
     try {
@@ -220,48 +305,6 @@ export class AuthService {
     } catch (error: any) {
       console.error('Profile Fetch Error:', {
         message: error.response?.data || error.message,
-        status: error.response?.status
-      });
-      
-      // If token is invalid or expired, remove it
-      if (error.response?.status === 401) {
-        this.removeToken();
-      }
-      
-      return null;
-    }
-  }
-
-  // Get wallet balance
-  static async getWalletBalance(): Promise<WalletBalanceResponse | null> {
-    try {
-      const token = this.getToken();
-      if (!token) {
-        console.error('No authentication token found');
-        return null;
-      }
-
-      const response = await axios.get(`${BASE_URL}/api/auth/profile/balance`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      // Validate response structure
-      if (response.data && 
-          typeof response.data.balance === 'number' && 
-          typeof response.data.currency === 'string') {
-        return {
-          balance: response.data.balance,
-          currency: response.data.currency
-        };
-      }
-      
-      console.warn('Invalid wallet balance response structure');
-      return null;
-    } catch (error: any) {
-      console.error('Wallet Balance Fetch Error:', {
-        message: error.response?.data?.message || error.message,
         status: error.response?.status
       });
       
@@ -330,7 +373,7 @@ export class AuthService {
         throw new Error('Authentication token not found');
       }
 
-      const response = await axios.post(`${BASE_URL}/api/auth/profile/deposit`, 
+      const response = await axios.post(`${BASE_URL}/api/wallet/deposit`, 
         { amount, currency, paymentMethod },
         {
           headers: {
@@ -360,7 +403,7 @@ export class AuthService {
         throw new Error('Authentication token not found');
       }
 
-      const response = await axios.post(`${BASE_URL}/api/auth/profile/withdraw`, 
+      const response = await axios.post(`${BASE_URL}/api/wallet/withdraw`, 
         { amount, currency, paymentMethod },
         {
           headers: {
@@ -377,8 +420,128 @@ export class AuthService {
     }
   }
 
-  // Check if user is authenticated
+  // Get user ID from profile or token
+  static getUserId(): string | null {
+    try {
+      // First, try to get user ID from stored profile
+      const storedProfile = localStorage.getItem('userProfile');
+      if (storedProfile) {
+        const profile: UserProfile = JSON.parse(storedProfile);
+        return profile.user_id;
+      }
+
+      // If no profile, attempt to extract from token
+      const token = this.getToken();
+      if (token) {
+        // Decode JWT token to extract user ID
+        const base64Payload = token.split('.')[1];
+        const payload = JSON.parse(atob(base64Payload));
+        
+        // Common JWT claims for user ID
+        return payload.sub || payload.user_id || payload.id;
+      }
+
+      return null;
+    } catch (error) {
+      console.warn('Error retrieving user ID', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      return null;
+    }
+  }
+
+  // Check if user is currently authenticated
   static isAuthenticated(): boolean {
-    return !!this.getToken();
+    try {
+      // Use the new getToken method which includes comprehensive validation
+      const token = this.getToken();
+      
+      // Additional check for user profile (optional, depending on your requirements)
+      return !!token;
+    } catch (error) {
+      console.warn('Authentication check failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      return false;
+    }
+  }
+
+  // Wallet Balance Retrieval
+  static async getWalletBalance(): Promise<WalletBalanceResponse | null> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        console.warn('🚨 No authentication token found for wallet balance');
+        return null;
+      }
+
+      const response = await axiosInstance.get('/api/wallet/balance', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      // Validate response structure
+      if (response.data && response.data.status === 'success' && response.data.wallet) {
+        const { 
+          balance, 
+          currency = 'KSH', 
+          userId,  
+          formattedBalance  
+        } = response.data.wallet;
+        
+        // Convert balance to number, handling potential string input
+        const numericBalance = typeof balance === 'string' 
+          ? parseFloat(balance) 
+          : balance;
+
+        if (!isNaN(numericBalance) && typeof currency === 'string' && userId) {
+          const walletUpdate: WalletBalanceResponse = {
+            user_id: userId,
+            balance: numericBalance,
+            currency: currency,
+            formattedBalance: formattedBalance || this.formatBalance(numericBalance)
+          };
+
+          // Log wallet balance retrieval for diagnostics
+          console.group('💰 Wallet Balance Retrieved');
+          console.log('Balance:', walletUpdate.balance);
+          console.log('User ID:', walletUpdate.user_id);
+          console.log('Currency:', walletUpdate.currency);
+          console.groupEnd();
+
+          return walletUpdate;
+        }
+      }
+      
+      console.warn('🚨 Invalid wallet balance response structure');
+      return null;
+    } catch (error: any) {
+      console.group('🚨 Wallet Balance Retrieval Error');
+      console.error('Error Details:', {
+        message: error.response?.data || error.message,
+        status: error.response?.status
+      });
+      console.groupEnd();
+      
+      // If token is invalid or expired, remove it
+      if (error.response?.status === 401) {
+        this.removeToken();
+      }
+      
+      return null;
+    }
+  }
+
+  // Helper method to format balance
+  private static formatBalance(balance: number): string {
+    return balance.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'KSH',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
   }
 }
