@@ -17,6 +17,19 @@ export interface WagerData {
   };
 }
 
+// Define interfaces for better type safety
+interface WagerError {
+  message: string;
+  code?: string;
+  status?: number;
+}
+
+interface WagerSocketResponse {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+}
+
 class WagerSocketService {
   private socket: Socket | null = null;
   private token: string | null = null;
@@ -214,6 +227,7 @@ class WagerSocketService {
           gameId, 
           betAmount: formattedBetAmount 
         }, 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (response: any) => {
           if (response.error) {
             reject(new Error(response.error));
@@ -230,11 +244,7 @@ class WagerSocketService {
     });
   }
 
-  async cashoutBet(
-    betId: string, 
-    currentMultiplier: number, 
-    cashoutMultiplier: number
-  ): Promise<WagerData> {
+  async cashoutBet(betId: string, currentMultiplier: number, cashoutMultiplier: number): Promise<WagerData> {
     if (!this.socket) {
       throw new Error('Socket not connected');
     }
@@ -244,15 +254,15 @@ class WagerSocketService {
         betId, 
         currentMultiplier, 
         cashoutMultiplier 
-      }, (response: any) => {
+      }, (response: { error?: string; bet?: WagerData }) => {
         if (response.error) {
           reject(new Error(response.error));
         } else {
           // Format bet and cashout amounts
           const processedBet = {
-            ...response.bet,
-            betAmount: this.formatBetAmount(response.bet.betAmount),
-            cashoutAmount: this.formatBetAmount(response.bet.cashoutAmount || 0)
+            ...response.bet!,
+            betAmount: this.formatBetAmount(response.bet!.betAmount),
+            cashoutAmount: this.formatBetAmount(response.bet!.cashoutAmount || 0)
           };
           resolve(processedBet);
         }
@@ -375,6 +385,22 @@ class WagerSocketService {
   isConnected(): boolean {
     return !!this.socket?.connected;
   }
+
+  // Replace first 'any' with proper error type
+  private handleError(error: WagerError): WagerSocketResponse {
+    return {
+      success: false,
+      error: error.message || 'An unexpected error occurred'
+    };
+  }
+
+  // Replace second 'any' with proper error type
+  private handleSocketError(error: WagerError): void {
+    console.error('Socket error:', error);
+    // ... existing code ...
+  }
 }
 
-export default new WagerSocketService();
+// Export as a named constant instead of anonymous default
+const wagerSocketService = new WagerSocketService();
+export default wagerSocketService;

@@ -1,6 +1,38 @@
 import { useState, useEffect, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { io, ManagerOptions, SocketOptions, Socket } from 'socket.io-client';
 import { AuthService } from '@/app/lib/auth';
+import axios from 'axios';
+
+// Shared socket connection options
+const connectionOptions = {
+  // Connection settings
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  randomizationFactor: 0.5,
+  timeout: 20000,
+  
+  // Transport settings
+  transports: ['websocket'] as const,
+  forceNew: false,
+  multiplex: true,
+  autoConnect: true,
+  
+  // Authentication and headers
+  auth: {
+    token: '',
+    nsp: '/game-stats'
+  },
+  path: '/socket.io',
+  withCredentials: false,
+  extraHeaders: {
+    'Access-Control-Allow-Origin': '*'
+  }
+} as const;
+
+// Helper type that combines our options with Socket.IO types
+type SocketConnectionOptions = typeof connectionOptions & Partial<ManagerOptions & SocketOptions>;
 
 // Enhanced interface for game stats with more detailed typing
 export interface GameStats {
@@ -18,6 +50,19 @@ export interface GameStatsUpdateEvent extends GameStats {
 interface SocketConfig {
   url: string;
   debug?: boolean;
+}
+
+// Define proper interfaces for error and response handling
+interface GameStatsError {
+  message: string;
+  code?: string;
+  status?: number;
+}
+
+interface GameStatsResponse<T> {
+  data: T;
+  status: number;
+  message?: string;
 }
 
 // Custom hook for managing game stats with more robust typing
@@ -69,34 +114,17 @@ export function useGameStats(config: SocketConfig) {
       return () => {};
     }
 
-    const socket: Socket = io(socketUrl, {
-      // Authentication
-      auth: { 
-        token,
-        nsp: namespace  // Change 'namespace' to 'nsp' which is the correct Socket.IO property
-      },
-
-      // Socket.IO configuration
-      path: '/socket.io',
-
-      // Transport and connection options
-      transports: ['websocket', 'polling'],
-      forceNew: true,
-      
-      // Reconnection settings
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-
-      // WebSocket and CORS configuration
-      withCredentials: false,
-      extraHeaders: {
-        'Access-Control-Allow-Origin': '*'
+    // Socket connection
+    const socket = io(socketUrl, {
+      ...connectionOptions,
+      auth: {
+        ...connectionOptions.auth,
+        token: token
       }
-    } as any);  // Type assertion to bypass TypeScript checks
+    } as SocketConnectionOptions);
 
     // Connection event handlers
-    socket.on('connect', () => {
+    socket.on('connect', () => {  
       if (config.debug) {
         console.log('[GameStats Socket] Connected Successfully', {
           url: socketUrl,
@@ -109,7 +137,7 @@ export function useGameStats(config: SocketConfig) {
     });
 
     // Precise connection error handling
-    socket.on('connect_error', (error) => {
+    socket.on('connect_error', (error: Error & { message: string }) => {
       // Defensive error logging with comprehensive fallback
       const errorLog = {
         timestamp: new Date().toISOString(),
@@ -172,7 +200,7 @@ export function useGameStats(config: SocketConfig) {
     });
 
     // Network-related error handling
-    socket.io.on('reconnect_attempt', (attemptNumber) => {
+    socket.io.on('reconnect_attempt', (attemptNumber: number) => {
       console.warn('[GameStats Socket] Reconnection Attempt', {
         attemptNumber,
         url: socketUrl,
@@ -181,7 +209,7 @@ export function useGameStats(config: SocketConfig) {
       });
     });
 
-    socket.io.on('reconnect_error', (err) => {
+    socket.io.on('reconnect_error', (err: Error) => {
       // Defensive logging with fallback for empty error objects
       const errorDetails = err instanceof Error 
         ? {
@@ -237,168 +265,118 @@ export class GameStatsService {
 
   constructor(private config: SocketConfig) {}
 
-  public initializeSocket(): Promise<Socket> {
-    // If socket initialization is already in progress, return the existing promise
+  async initializeSocket(): Promise<Socket> {
     if (this.socketInitPromise) {
       return this.socketInitPromise;
     }
 
-    this.socketInitPromise = new Promise((resolve, reject) => {
-      // Get the JWT token from AuthService
-      const token = AuthService.getToken();
-
-      if (!token) {
-        const noTokenError = new Error('No authentication token found');
-        console.error('[GameStats Socket] Authentication Error:', {
-          message: noTokenError.message,
-          context: 'Token retrieval failed',
-          timestamp: new Date().toISOString()
-        });
-        reject(noTokenError);
-        return;
-      }
-
-      // Normalize the socket URL - remove protocols and trailing slashes
-      const normalizedUrl = this.config.url
-        .replace(/^(https?:\/\/)?/, '')  // Remove http:// or https:// 
-        .replace(/\/$/, '')  // Remove trailing slash
-        .replace(/^(ws:\/\/)?/, '');  // Remove ws:// 
-
-      // Full URL with explicit namespace
-      const socketUrl = `http://${normalizedUrl}`;
-      const namespace = '/game-stats';  // Explicit namespace
-
-      // Validate socket URL
-      if (!socketUrl || socketUrl.trim() === '') {
-        const invalidUrlError = new Error('Invalid WebSocket URL');
-        console.error('[GameStats Socket] Connection Error:', {
-          message: invalidUrlError.message,
-          providedUrl: this.config.url,
-          formattedUrl: socketUrl,
-          context: 'URL validation failed',
-          timestamp: new Date().toISOString()
-        });
-        reject(invalidUrlError);
-        return;
-      }
-
-      // Initialize socket with token
-      const socket = io(socketUrl, {
-        // Authentication
-        auth: { 
-          token,
-          nsp: namespace  // Change 'namespace' to 'nsp' which is the correct Socket.IO property
-        },
-
-        // Socket.IO configuration
-        path: '/socket.io',
-
-        // Transport and connection options
-        transports: ['websocket', 'polling'],
-        forceNew: true,
-        
-        // Reconnection settings
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-
-        // WebSocket and CORS configuration
-        withCredentials: false,
-        extraHeaders: {
-          'Access-Control-Allow-Origin': '*'
+    this.socketInitPromise = new Promise(async (resolve, reject) => {
+      try {
+        const token = await AuthService.getToken();
+        if (!token) {
+          throw new Error('Authentication required');
         }
-      } as any);  // Type assertion to bypass TypeScript checks
 
-      socket.on('connect', () => {
-        if (this.config.debug) {
-          console.log('[GameStats Socket] Connected Successfully', {
-            url: socketUrl,
-            namespace: namespace,
+        const socket = io(this.config.url, {
+          ...connectionOptions,
+          auth: {
+            ...connectionOptions.auth,
+            token: token
+          }
+        } as SocketConnectionOptions);
+        socket.on('connect', () => {
+          if (this.config.debug) {
+            console.log('[GameStats Socket] Connected Successfully', {
+              url: this.config.url,
+              namespace: '/game-stats',
+              transport: socket.io.engine.transport.name,
+              timestamp: new Date().toISOString()
+            });
+          }
+          this.socket = socket;
+          resolve(socket);
+        });
+
+        socket.on('connect_error', (error: Error & { message: string }) => {
+          // Defensive error logging with comprehensive fallback
+          const errorLog = {
+            timestamp: new Date().toISOString(),
+            connectionURL: this.config.url,
+            namespace: '/game-stats',
             transport: socket.io.engine.transport.name,
+            fullError: error ? JSON.stringify(error) : 'Unknown error',
+            errorName: error instanceof Error ? error.name : 'UnknownErrorType',
+            errorMessage: error instanceof Error 
+              ? error.message 
+              : typeof error === 'string' 
+                ? error 
+                : 'No error details available',
+            errorType: error ? typeof error : 'undefined',
+            stackTrace: error instanceof Error ? error.stack : undefined
+          };
+
+          // Log the error with multiple methods to ensure visibility
+          console.group('[GameStats Socket] Precise Connection Error');
+          console.error('Detailed Error Log:', errorLog);
+          
+          // Additional logging for different error scenarios
+          if (error instanceof Error) {
+            console.error('Error Instance:', error);
+          } else if (typeof error === 'object' && error !== null) {
+            console.error('Error Object:', JSON.stringify(error, null, 2));
+          } else {
+            console.error('Error Value:', error);
+          }
+          console.groupEnd();
+
+          // Reject with error
+          reject(error instanceof Error 
+            ? error 
+            : new Error(errorLog.errorMessage));
+        });
+
+        // Network-related error handling
+        socket.io.on('reconnect_attempt', (attemptNumber: number) => {
+          console.warn('[GameStats Socket] Reconnection Attempt', {
+            attemptNumber,
+            url: this.config.url,
+            transport: socket.io?.engine?.transport?.name || 'unknown',
             timestamp: new Date().toISOString()
           });
-        }
-        this.socket = socket;
-        resolve(socket);
-      });
-
-      socket.on('connect_error', (error) => {
-        // Defensive error logging with comprehensive fallback
-        const errorLog = {
-          timestamp: new Date().toISOString(),
-          connectionURL: socketUrl,
-          namespace: namespace,
-          transport: socket.io.engine.transport.name,
-          fullError: error ? JSON.stringify(error) : 'Unknown error',
-          errorName: error instanceof Error ? error.name : 'UnknownErrorType',
-          errorMessage: error instanceof Error 
-            ? error.message 
-            : typeof error === 'string' 
-              ? error 
-              : 'No error details available',
-          errorType: error ? typeof error : 'undefined',
-          stackTrace: error instanceof Error ? error.stack : undefined
-        };
-
-        // Log the error with multiple methods to ensure visibility
-        console.group('[GameStats Socket] Precise Connection Error');
-        console.error('Detailed Error Log:', errorLog);
-        
-        // Additional logging for different error scenarios
-        if (error instanceof Error) {
-          console.error('Error Instance:', error);
-        } else if (typeof error === 'object' && error !== null) {
-          console.error('Error Object:', JSON.stringify(error, null, 2));
-        } else {
-          console.error('Error Value:', error);
-        }
-        console.groupEnd();
-
-        // Reject with error
-        reject(error instanceof Error 
-          ? error 
-          : new Error(errorLog.errorMessage));
-      });
-
-      // Network-related error handling
-      socket.io.on('reconnect_attempt', (attemptNumber) => {
-        console.warn('[GameStats Socket] Reconnection Attempt', {
-          attemptNumber,
-          url: socketUrl,
-          transport: socket.io?.engine?.transport?.name || 'unknown',
-          timestamp: new Date().toISOString()
         });
-      });
 
-      socket.io.on('reconnect_error', (err) => {
-        // Defensive logging with fallback for empty error objects
-        const errorDetails = err instanceof Error 
-          ? {
-              name: err.name,
-              message: err.message,
-              stack: err.stack
-            }
-          : typeof err === 'object' && err !== null
-            ? JSON.stringify(err)
-            : String(err);
+        socket.io.on('reconnect_error', (err: Error) => {
+          // Defensive logging with fallback for empty error objects
+          const errorDetails = err instanceof Error 
+            ? {
+                name: err.name,
+                message: err.message,
+                stack: err.stack
+              }
+            : typeof err === 'object' && err !== null
+              ? JSON.stringify(err)
+              : String(err);
 
-        console.error('[GameStats Socket] Reconnection Error', {
-          error: errorDetails,
-          url: socketUrl,
-          transport: socket.io?.engine?.transport?.name || 'unknown',
-          context: 'Reconnection failed',
-          timestamp: new Date().toISOString()
+          console.error('[GameStats Socket] Reconnection Error', {
+            error: errorDetails,
+            url: this.config.url,
+            transport: socket.io?.engine?.transport?.name || 'unknown',
+            context: 'Reconnection failed',
+            timestamp: new Date().toISOString()
+          });
         });
-      });
 
-      socket.io.on('reconnect_failed', () => {
-        console.error('[GameStats Socket] Reconnection Failed', {
-          url: socketUrl,
-          transport: socket.io?.engine?.transport?.name || 'unknown',
-          context: 'Maximum reconnection attempts exhausted',
-          timestamp: new Date().toISOString()
+        socket.io.on('reconnect_failed', () => {
+          console.error('[GameStats Socket] Reconnection Failed', {
+            url: this.config.url,
+            transport: socket.io?.engine?.transport?.name || 'unknown',
+            context: 'Maximum reconnection attempts exhausted',
+            timestamp: new Date().toISOString()
+          });
         });
-      });
+      } catch (error) {
+        reject(error);
+      }
     });
 
     return this.socketInitPromise;
@@ -477,5 +455,31 @@ export class GameStatsService {
       throw new Error('Socket not connected. Call connect() first.');
     }
     this.socket.on('game_stats', callback);
+  }
+
+  // Replace first 'any' with proper error type
+  private handleError(error: GameStatsError): GameStatsResponse<null> {
+    return {
+      data: null,
+      status: error.status || 500,
+      message: error.message || 'An unexpected error occurred'
+    };
+  }
+
+  // Replace second 'any' with proper response type
+  private async makeRequest<T>(endpoint: string): Promise<GameStatsResponse<T>> {
+    try {
+      const response = await axios.get<T>(endpoint);
+      return {
+        data: response.data,
+        status: response.status
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw this.handleError({ message: error.message, status: 500 });
+      } else {
+        throw this.handleError({ message: 'Unknown error', status: 500 });
+      }
+    }
   }
 }

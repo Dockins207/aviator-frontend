@@ -3,30 +3,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import ChatIcon from '@/components/GroupChat/ChatIcon';
-import GroupChat from '@/components/GroupChat/GroupChat';
 
 import { 
-  HomeIcon, 
   UserCircleIcon, 
   ArrowLeftOnRectangleIcon 
 } from '@heroicons/react/24/outline';
 
 import { AuthService } from '@/app/lib/auth';
 import { useWallet } from '@/contexts/WalletContext';
-import { useChat } from '@/context/ChatContext';
+import { useChat } from '@/contexts/ChatContext';
 import { MessageCircle } from 'lucide-react';
 
+import GroupChat from '@/components/GroupChat/GroupChat';
+
 interface GameDashboardHeaderProps {
-  username?: string;
+  balance: number | undefined;
 }
 
-const GameDashboardHeader: React.FC<GameDashboardHeaderProps> = ({ username }) => {
+const GameDashboardHeader = ({ balance }: GameDashboardHeaderProps) => {
   const router = useRouter();
-  const { balance, loading, error } = useWallet();
+  const { loading, error } = useWallet();
   const { toggleChat, isChatOpen } = useChat();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isPopupOpen, setIsPopupOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -74,10 +72,6 @@ const GameDashboardHeader: React.FC<GameDashboardHeaderProps> = ({ username }) =
     setIsMenuOpen(false);
   };
 
-  const handlePlusClick = () => {
-    setIsPopupOpen(true);
-  };
-
   const formatBalance = (amount: number | undefined) => {
     if (!amount) return '0.00';
     return amount.toLocaleString('en-KE', { minimumFractionDigits: 2 });
@@ -98,20 +92,6 @@ const GameDashboardHeader: React.FC<GameDashboardHeaderProps> = ({ username }) =
             flex items-center gap-1
             h-[26px]
           ">
-            <button
-              className="
-                flex items-center justify-center
-                w-5 h-5 rounded-full
-                bg-red-700 hover:bg-red-800
-                text-white font-bold
-                transition-colors duration-200
-                active:scale-95
-                mr-1
-              "
-              onClick={handlePlusClick}
-            >
-              +
-            </button>
             <span className="font-bold">
               {loading ? 'Loading...' : `KSH ${formatBalance(balance)}`}
             </span>
@@ -176,7 +156,7 @@ const GameDashboardHeader: React.FC<GameDashboardHeaderProps> = ({ username }) =
         </div>
       )}
 
-      {isChatOpen && <GroupChat onClose={() => toggleChat()} />}
+      {isChatOpen && <GroupChat onClose={() => toggleChat()} isOpen={isChatOpen} />}
     </header>
   );
 };

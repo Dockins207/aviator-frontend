@@ -32,17 +32,15 @@ class GameSocketService {
   }
 
   // Initialize socket connection
-  private async initializeSocket(): Promise<Socket> {
+  private async initializeSocket(): Promise<Socket | never> {
     if (this.socketInitPromise) return this.socketInitPromise;
+
+    if (typeof window === 'undefined') {
+      throw new Error('Cannot initialize socket on server side');
+    }
 
     this.socketInitPromise = new Promise(async (resolve, reject) => {
       try {
-        // Check if we're in a browser environment
-        if (typeof window === 'undefined') {
-          reject(new Error('Cannot initialize socket on server side'));
-          return;
-        }
-
         const accessToken = AuthService.getToken();
         const profile = await AuthService.getProfile();
         
@@ -216,4 +214,6 @@ class GameSocketService {
   }
 }
 
-export default new GameSocketService();
+const instance = new GameSocketService();
+
+export default instance;

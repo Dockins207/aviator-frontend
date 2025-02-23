@@ -7,12 +7,34 @@ interface WalletUpdate {
   gameId?: string;
 }
 
+// Define interfaces for better type safety
+interface WalletError {
+  message: string;
+  code?: string;
+  status?: number;
+}
+
+interface WalletEventData {
+  balance?: number;
+  transaction?: {
+    amount: number;
+    type: string;
+    timestamp: Date;
+  };
+  // Add other wallet event properties as needed
+}
+
+interface WalletEventCallback {
+  (data: WalletEventData): void;
+}
+
 class WalletSocketService {
   private socket: Socket | null = null;
   private listeners: Set<(data: WalletUpdate) => void> = new Set();
   private token: string | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private eventHandlers: Map<string, WalletEventCallback> = new Map();
 
   connect(token: string) {
     this.token = token;
@@ -59,17 +81,17 @@ class WalletSocketService {
       this.notifyListeners(data);
     });
 
-    this.socket.on('error', (error: any) => {
+    this.socket.on('error', (error: WalletError) => {
       console.error('Wallet socket error:', error);
-      this.handleError(error);
+      this.handleError();
     });
 
     this.socket.on('disconnect', (reason) => {
       console.log('Wallet socket disconnected:', reason);
-      this.handleDisconnect(reason);
+      this.handleDisconnect();
     });
 
-    this.socket.on('connect_error', (error) => {
+    this.socket.on('connect_error', (error: Error & { message: string }) => {
       console.error('Connection error:', error);
       this.handleConnectionError(error);
     });
@@ -85,19 +107,23 @@ class WalletSocketService {
     });
   }
 
-  private handleError(error: any) {
+  private handleError() {
     if (this.socket && !this.socket.connected) {
       this.attemptReconnect();
     }
   }
 
-  private handleDisconnect(reason: string) {
-    if (reason === 'io server disconnect' || reason === 'transport close') {
-      this.attemptReconnect();
+  private handleDisconnect() {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+      this.token = null;
+      this.listeners.clear();
+      this.reconnectAttempts = 0;
     }
   }
 
-  private handleConnectionError(error: any) {
+  private handleConnectionError(error: Error & { message: string }) {
     if (error.message === 'Invalid token') {
       console.error('Authentication failed');
       this.disconnect();

@@ -71,12 +71,6 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true
   },
-  
-  // Optimize static file handling
-  experimental: {
-    optimizePackageImports: ['@mui/material', 'lodash'],
-    serverComponentsExternalPackages: ['mongoose']
-  }
 };
 
 module.exports = nextConfig;

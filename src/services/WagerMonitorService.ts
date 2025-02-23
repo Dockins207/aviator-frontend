@@ -1,6 +1,6 @@
 import io, { Socket } from 'socket.io-client';
 import { makeAutoObservable } from 'mobx';
-import axios, { AxiosError } from 'axios'; // Updated import to include AxiosError
+import axios /* , { AxiosError } */ from 'axios';
 
 // Expanded TypeScript interfaces for type safety
 export interface Wager {

@@ -2,14 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AuthService, UserProfile } from '@/app/lib/auth';
+import { AuthService } from '@/app/lib/auth';
 import { useWallet } from '@/contexts/WalletContext';
 import { toast, Toaster } from 'react-hot-toast';
 
 const ProfilePage: React.FC = () => {
   const router = useRouter();
   const { balance, loading: walletLoading, error: walletError } = useWallet();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Form state
@@ -31,16 +30,15 @@ const ProfilePage: React.FC = () => {
 
         const userProfile = await AuthService.getProfile();
         if (userProfile) {
-          setProfile(userProfile);
           setUsername(userProfile.username);
           setPhoneNumber(userProfile.phone_number);
         } else {
           console.error('Failed to fetch user profile');
           toast.error('Unable to load user profile');
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Profile Fetch Error:', err);
-        toast.error(err.message || 'Failed to load profile');
+        toast.error(err instanceof Error ? err.message : 'Failed to load profile');
       } finally {
         setLoading(false);
       }
@@ -69,8 +67,8 @@ const ProfilePage: React.FC = () => {
       const response = await AuthService.depositFunds(amount);
       toast.success(`Deposit successful. Transaction ID: ${response.transactionId}`);
       setDepositAmount('');
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Deposit failed');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Deposit failed');
     }
   };
 
@@ -88,8 +86,8 @@ const ProfilePage: React.FC = () => {
       const response = await AuthService.withdrawFunds(amount);
       toast.success(`Withdrawal successful. Transaction ID: ${response.transactionId}`);
       setWithdrawAmount('');
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Withdrawal failed');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Withdrawal failed');
     }
   };
 
@@ -102,10 +100,15 @@ const ProfilePage: React.FC = () => {
         phoneNumber
       });
 
-      toast.success('Profile updated successfully');
-      setProfile(updatedProfile);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to update profile');
+      if (updatedProfile) {
+        toast.success('Profile updated successfully');
+        setUsername(updatedProfile.username);
+        setPhoneNumber(updatedProfile.phone_number);
+      } else {
+        toast.error('Failed to update profile');
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update profile');
       console.error(err);
     }
   };

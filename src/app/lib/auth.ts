@@ -192,7 +192,7 @@ export class AuthService {
       }
 
       // Attempt to call logout endpoint
-      const response = await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
+      await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -202,10 +202,10 @@ export class AuthService {
       this.removeToken();
 
       return true;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Logout Error:', {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
       });
 
       // Always remove token, even if logout request fails
@@ -237,8 +237,8 @@ export class AuthService {
         password: userData.password
       });
       return response.data;
-    } catch (error: any) {
-      console.error('Registration Error:', error.response?.data || error.message);
+    } catch (error) {
+      console.error('Registration Error:', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   }
@@ -264,11 +264,10 @@ export class AuthService {
       }
       
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Login Error:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
       });
       throw error;
     }
@@ -302,14 +301,14 @@ export class AuthService {
       
       console.error('Invalid profile response structure');
       return null;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Profile Fetch Error:', {
-        message: error.response?.data || error.message,
-        status: error.response?.status
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
       });
       
       // If token is invalid or expired, remove it
-      if (error.response?.status === 401) {
+      if (error instanceof Error && error.message.includes('401')) {
         this.removeToken();
       }
       
@@ -345,14 +344,14 @@ export class AuthService {
       });
 
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Profile Update Error:', {
-        message: error.response?.data || error.message,
-        status: error.response?.status
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
       });
       
       // If token is invalid or expired, remove it
-      if (error.response?.status === 401) {
+      if (error instanceof Error && error.message.includes('401')) {
         this.removeToken();
       }
       
@@ -384,8 +383,8 @@ export class AuthService {
       );
 
       return response.data;
-    } catch (error: any) {
-      console.error('Deposit Funds Error:', error.response?.data || error.message);
+    } catch (error) {
+      console.error('Deposit Funds Error:', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   }
@@ -414,8 +413,8 @@ export class AuthService {
       );
 
       return response.data;
-    } catch (error: any) {
-      console.error('Withdraw Funds Error:', error.response?.data || error.message);
+    } catch (error) {
+      console.error('Withdraw Funds Error:', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   }
@@ -531,16 +530,16 @@ export class AuthService {
       
       console.warn('🚨 Invalid wallet balance response structure');
       return null;
-    } catch (error: any) {
+    } catch (error) {
       console.group('🚨 Wallet Balance Retrieval Error');
       console.error('Error Details:', {
-        message: error.response?.data || error.message,
-        status: error.response?.status
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
       });
       console.groupEnd();
       
       // If token is invalid or expired, remove it
-      if (error.response?.status === 401) {
+      if (error instanceof Error && error.message.includes('401')) {
         this.removeToken();
       }
       

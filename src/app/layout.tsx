@@ -2,7 +2,7 @@ import React from "react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Toaster, ToastOptions, DefaultToastOptions } from "react-hot-toast";
+import { Toaster, DefaultToastOptions } from "react-hot-toast";
 import Footer from "@/components/Layout/Footer";
 import { Providers } from "@/components/Providers/Providers";
 

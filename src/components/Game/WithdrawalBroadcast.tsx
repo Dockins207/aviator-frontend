@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import gameSocketService from '@/services/gameSocketService';
 
 interface WithdrawalBroadcastProps {
   small?: boolean;

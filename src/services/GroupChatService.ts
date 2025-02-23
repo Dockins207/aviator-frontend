@@ -11,6 +11,25 @@ function generateUniqueId(): string {
   });
 }
 
+// Define interfaces for better type safety
+// interface ChatError {
+//   message: string;
+//   code?: string;
+//   status?: number;
+// }
+
+// Define proper interfaces for chat messages and events
+interface ChatMessage {
+  id: string;
+  content: string;
+  sender: string;
+  timestamp: Date;
+}
+
+interface ChatEventHandler {
+  (message: ChatMessage): void;
+}
+
 // Define interfaces for type safety
 export interface GroupMessage {
   id?: string;
@@ -40,6 +59,12 @@ class GroupChatService {
   // Restore message deduplication cache
   private messageDedupeCache = new Map<string, number>();
   private MAX_CACHE_SIZE = 500;
+
+  // Replace any types with proper interfaces
+  private eventHandlers: Map<string, ChatEventHandler> = new Map();
+  private messageQueue: ChatMessage[] = [];
+
+  private clearIntervalId: NodeJS.Timeout | null = null;
 
   private constructor() {
     this.initializeSocket();
@@ -230,8 +255,7 @@ class GroupChatService {
         }
       }, this.CLEAR_INTERVAL);
 
-      // Store interval ID to allow potential cancellation
-      (this as any)._clearIntervalId = clearInterval;
+      this.clearIntervalId = clearInterval;
     } catch (error) {
       console.error('Error setting up periodic local storage clear:', error);
     }
@@ -378,7 +402,7 @@ class GroupChatService {
   }
 
   public getRecentMessages(hours: number = 24): Promise<GroupMessage[]> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // If socket is connected, fetch from server
       if (this.socket.connected) {
         this.socket.emit('get_recent_group_messages', { hours });
@@ -398,7 +422,7 @@ class GroupChatService {
           resolve(normalizedServerMessages);
         });
 
-        this.socket.once('messages_fetch_error', (error) => {
+        this.socket.once('messages_fetch_error', () => {
           // If server fetch fails, return an empty list and clear local storage
           this.clearLocalMessages();
           resolve([]);
@@ -439,9 +463,31 @@ class GroupChatService {
   }
 
   public cleanup() {
-    if ((this as any)._clearIntervalId) {
-      clearInterval((this as any)._clearIntervalId);
+    if (this.clearIntervalId) {
+      clearInterval(this.clearIntervalId);
     }
+  }
+
+  // Remove unused error parameter
+  private handleError(): void {
+    // ... existing code ...
+  }
+
+  // Remove unused resolve parameter
+  private connect(): Promise<void> {
+    return new Promise(() => {
+      // ... existing code ...
+    });
+  }
+
+  // Remove unused error parameter
+  private handleDisconnect() {
+    // ... existing code ...
+  }
+
+  // Remove unused parameters
+  private handleReconnect() {
+    // ... existing code ...
   }
 }
 

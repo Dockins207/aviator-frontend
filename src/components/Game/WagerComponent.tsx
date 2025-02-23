@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import wagerSocketService, { WagerData } from '../../services/wagerSocketService';
 import { toast } from 'react-hot-toast';
-import { truncateUsername, formatCurrency } from '../../utils/displayUtils';
+import { formatCurrency } from '../../utils/displayUtils';
 import UserAvatar from '../common/UserAvatar';
 
 const WagerComponent: React.FC = () => {
@@ -61,7 +61,7 @@ const WagerComponent: React.FC = () => {
     }
 
     try {
-      const response = await wagerSocketService.placeBet(currentGameId, betAmount);
+      await wagerSocketService.placeBet(currentGameId, betAmount);
       toast.success('Bet placed successfully');
       setBetAmount(0);
       
@@ -79,7 +79,7 @@ const WagerComponent: React.FC = () => {
     }
 
     try {
-      const response = await wagerSocketService.cashoutBet(
+      await wagerSocketService.cashoutBet(
         wager.id, 
         wager.currentMultiplier, 
         wager.currentMultiplier

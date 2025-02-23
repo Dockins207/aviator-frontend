@@ -5,6 +5,13 @@ import { useRouter } from 'next/navigation';
 import { AuthService } from '../lib/auth';
 import Link from 'next/link';
 
+// Define proper error type
+interface LoginError {
+  message: string;
+  status?: number;
+  code?: string;
+}
+
 export default function LoginPage() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
@@ -60,20 +67,16 @@ export default function LoginPage() {
       
       // Redirect to dashboard
       router.push('/game-dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Detailed error logging
       console.error('Login Error Details:', {
-        message: err.message,
-        response: err.response?.data,
-        status: err.response?.status
+        message: (err as LoginError).message,
+        status: (err as LoginError).status,
+        code: (err as LoginError).code
       });
       
       // Provide user-friendly error message
-      setError(
-        err.response?.data?.message || 
-        err.message || 
-        'Login failed. Please check your credentials.'
-      );
+      setError((err as LoginError).message || 'Login failed. Please check your credentials.');
     }
   };
 
@@ -141,7 +144,7 @@ export default function LoginPage() {
               href="/register" 
               className="text-blue-400 hover:text-blue-300 text-sm"
             >
-              Don't have an account? Register
+              Don&apos;t have an account? Register
             </Link>
           </div>
         </div>

@@ -4,15 +4,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { X, MessageCircle } from 'lucide-react';
 import GroupChatService, { GroupMessage } from '@/services/GroupChatService';
-import { useChat } from '@/context/ChatContext';
+import { useChat } from '@/contexts/ChatContext';
 import '@/styles/scrollbar-hide.css';
 
 interface GroupChatProps {
+  isOpen: boolean;
   onClose: () => void;
 }
 
-const GroupChat: React.FC<GroupChatProps> = ({ onClose }) => {
-  const { isChatOpen, toggleChat } = useChat();
+const GroupChat = ({ onClose }: GroupChatProps) => {
+  const { isChatOpen } = useChat();
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -101,7 +102,7 @@ const GroupChat: React.FC<GroupChatProps> = ({ onClose }) => {
           <h3 className="text-xs font-medium text-white">Live Chat</h3>
         </div>
         <button 
-          onClick={toggleChat} 
+          onClick={onClose} 
           className="hover:bg-zinc-800 rounded-full p-0.5 transition-colors"
         >
           <X className="w-3.5 h-3.5 text-white" />
@@ -124,13 +125,13 @@ const GroupChat: React.FC<GroupChatProps> = ({ onClose }) => {
             >
               <div className="flex justify-between items-start mb-1">
                 <span className="text-sm font-medium text-blue-400">
-                  {message.username}
+                  {message.sender}
                 </span>
                 <span className="text-xs text-zinc-400">
                   {new Date(message.timestamp).toLocaleTimeString()}
                 </span>
               </div>
-              <p className="text-sm text-white">{message.content}</p>
+              <p className="text-sm text-white">{message.message}</p>
             </div>
           ))
         )}

@@ -9,7 +9,7 @@ import CrashHistory from './CrashHistory';
 interface GameState {
   status: 'idle' | 'betting' | 'flying' | 'crashed';
   multiplier: number;
-  players: any[];
+  players: { id: string; username: string; betAmount: number }[];
   totalPlayers: number;
   totalBetAmount: number;
   countdown: number;
@@ -34,20 +34,9 @@ const GameBoard: React.FC = () => {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [isClient, setIsClient] = useState(false);
-  const [crashHistory, setCrashHistory] = useState<number[]>([
-    4.66, 40.72, 2.04, 4.82, 2.20, 1.52, 1.27, 1.81, 1.00, 4.31,
-    11.14, 1.07, 2.98, 1.30, 1.29, 1.50, 9.80, 2.15, 3.45, 1.92,
-    5.67, 8.23, 1.45, 2.78, 15.90, 1.23, 3.89, 2.56, 1.78, 6.34,
-    12.45, 3.67, 1.89, 7.23, 2.34, 4.56, 1.67, 8.90, 3.21, 5.78,
-    1.34, 6.78, 2.45, 9.12, 1.56, 4.23, 7.89, 2.67, 5.34, 1.78,
-    13.45, 2.23, 6.78, 1.45, 8.90, 3.34, 5.67, 2.12, 4.56, 1.89,
-    10.23, 3.45, 7.89, 2.56, 4.78, 1.67, 6.34, 2.89, 5.12, 1.45,
-    15.67, 2.34, 8.90, 1.78, 4.56, 3.23, 7.89, 2.45, 6.12, 1.89
-  ]);
 
   // 2. All useRef hooks
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const socketRef = useRef<WebSocket | null>(null);
 
   // 3. All useEffect hooks
   useEffect(() => {
@@ -63,16 +52,10 @@ const GameBoard: React.FC = () => {
     if (typeof window === 'undefined') return;
 
     // Check authentication first
-    const token = AuthService.getToken();
-    if (!token) {
-      setConnectionError('Please login to continue');
-      return;
-    }
-
-    // Get authentication details
     const initializeSocket = async () => {
       try {
         const profile = await AuthService.getProfile();
+        const token = await AuthService.getToken();
         
         if (!profile) {
           setConnectionError('Authentication required');
@@ -101,13 +84,13 @@ const GameBoard: React.FC = () => {
         });
 
         // Error handling
-        socket.on('connect_error', (error) => {
-          setConnectionError(error.message);
+        socket.on('connect_error', () => {
+          setConnectionError('Failed to connect');
           setIsConnected(false);
         });
 
         // Game state update listener
-        socket.on('gameStateUpdate', (newGameState) => {
+        socket.on('gameStateUpdate', (newGameState: GameState) => {
           const updatedState = {
             ...gameState,
             ...newGameState,
@@ -132,7 +115,7 @@ const GameBoard: React.FC = () => {
         return () => {
           socket.disconnect();
         };
-      } catch (error) {
+      } catch {
         setConnectionError('Failed to initialize socket');
       }
     };
@@ -141,7 +124,7 @@ const GameBoard: React.FC = () => {
     return () => {
       socketCleanup.then(cleanup => cleanup?.());
     };
-  }, []);
+  }, [gameState]);
 
   useEffect(() => {
     if (gameStateHistory.length > 0) {
@@ -164,7 +147,7 @@ const GameBoard: React.FC = () => {
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }, [gameState, isConnected, connectionError, isClient]);
+  }, [isClient, canvasRef, isConnected, connectionError]);
 
   useEffect(() => {
     const rays = document.querySelector(`.${styles.rays}`) as HTMLElement;
@@ -281,52 +264,6 @@ const GameBoard: React.FC = () => {
             Z`;
   };
 
-  // Get the current point on the path
-  const getCurrentPoint = (multiplier: number, offset: number = 0) => {
-    const height = 330;
-    const width = 800;
-    const progress = getProgress(multiplier);
-    
-    if (!isMounted || progress === 0) {
-      return { x: 0, y: height };
-    }
-
-    const endX = width * 0.85;
-    const endY = height * 0.2;
-    
-    // Calculate current point based on progress, with optional offset
-    const adjustedProgress = Math.min(progress + offset, 1);
-    const x = adjustedProgress * endX;
-    const y = height - (adjustedProgress * (height - endY));
-    
-    return { x, y };
-  };
-
-  // Calculate the visible portion of the path based on multiplier
-  const calculateVisiblePath = (multiplier: number): CSSProperties => {
-    const totalLength = 1000;
-    const progress = getProgress(multiplier);
-    
-    // Complete invisibility at start or when not mounted
-    if (!isMounted || progress === 0) {
-      return {
-        strokeDasharray: '0',
-        strokeDashoffset: '0',
-        opacity: 0,
-        visibility: 'hidden' as const,
-        pointerEvents: 'none' as const
-      };
-    }
-    
-    return {
-      strokeDasharray: totalLength,
-      strokeDashoffset: totalLength * (1 - progress),
-      opacity: 1,
-      visibility: 'visible' as const,
-      pointerEvents: 'auto' as const
-    };
-  };
-
   // Format multiplier safely
   const formatMultiplier = () => {
     // If multiplier is not a number, return a default value
@@ -334,20 +271,6 @@ const GameBoard: React.FC = () => {
       return '1.00';
     }
     return gameState.multiplier.toFixed(2);
-  };
-
-  // Determine display color based on game status
-  const getStatusColor = () => {
-    switch (gameState.status) {
-      case 'betting':
-        return 'text-yellow-500';
-      case 'flying':
-        return 'text-green-500';
-      case 'crashed':
-        return 'text-red-500';
-      default:
-        return 'text-gray-500';
-    }
   };
 
   // Render game content based on state
@@ -406,7 +329,7 @@ const GameBoard: React.FC = () => {
       </div>
       
       <div className="absolute top-0.5 left-2 right-2 z-10">
-        <CrashHistory history={crashHistory} />
+        <CrashHistory history={[4.66, 40.72, 2.04, 4.82, 2.20, 1.52, 1.27, 1.81, 1.00, 4.31]} />
       </div>
 
       {gameState.status === 'flying' && isMounted && (

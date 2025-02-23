@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useGameStats } from '../../hooks/useGameStats';
 import wagerSocketService, { WagerData } from '../../services/wagerSocketService';
-import { truncateUsername, formatCurrency } from '../../utils/displayUtils';
+import { formatCurrency } from '../../utils/displayUtils';
 import UserAvatar from '../common/UserAvatar';
 
 const Section1: React.FC<{ 

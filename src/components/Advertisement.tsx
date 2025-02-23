@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 
 // Define the structure of an advertisement
 interface Advertisement {
@@ -77,11 +78,13 @@ const AdvertisementCarousel: React.FC<AdvertisementCarouselProps> = ({
               ${index === currentAdIndex ? 'opacity-100' : 'opacity-0'}
             `}
           >
-            <img
+            <Image
               src={ad.imageUrl}
               alt={ad.altText}
+              width={500}
+              height={300}
+              className="w-full h-auto"
               onClick={() => handleAdClick(ad.linkUrl)}
-              className="absolute top-0 left-0 w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity rounded-none"
             />
           </div>
         ))}

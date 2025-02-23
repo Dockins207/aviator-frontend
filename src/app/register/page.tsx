@@ -66,8 +66,14 @@ export default function RegisterPage() {
     try {
       await AuthService.register({ username, phoneNumber, password });
       router.push('/login');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || 'Registration failed. Please try again.');
+      } else if (typeof err === 'string') {
+        setError(err);
+      } else {
+        setError('Registration failed. Please try again.');
+      }
     }
   };
 
