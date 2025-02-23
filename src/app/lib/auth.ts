@@ -468,6 +468,19 @@ export class AuthService {
     }
   }
 
+  // Token Extraction Strategies
+  static getTokenExtractionStrategies(): Record<string, string | null> {
+    const token = this.getToken();
+    
+    return {
+      'auth.token': token,
+      'auth.accessToken': token,
+      'headers.authorization': token ? `Bearer ${token}` : null,
+      'headers.x-access-token': token,
+      'query.token': token
+    };
+  }
+
   // Wallet Balance Retrieval
   static async getWalletBalance(): Promise<WalletBalanceResponse | null> {
     try {

@@ -23,8 +23,8 @@ const BalanceDisplay: React.FC<BalanceDisplayProps> = ({ balance: propBalance })
   }, [propBalance]);
 
   return (
-    <div className="balance-display">
-      <span>{formattedBalance}</span>
+    <div className="balance-display text-xs font-bold">
+      <span>{currency} {formattedBalance}</span>
     </div>
   );
 };

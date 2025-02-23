@@ -10,18 +10,21 @@
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
+    "@heroicons/react": "^2.2.0",
     "@types/uuid": "^10.0.0",
     "axios": "^1.7.9",
     "clsx": "^2.1.1",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.475.0",
+    "mobx": "^6.13.6",
+    "mobx-react-lite": "^4.1.0",
     "next": "^15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-error-boundary": "^5.0.0",
     "react-hot-toast": "^2.5.1",
     "socket.io-client": "^4.8.1",
-    "uuid": "^11.0.5"
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

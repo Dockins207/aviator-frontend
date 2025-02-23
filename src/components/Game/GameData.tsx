@@ -1,7 +1,10 @@
 "use client";
 
-import React, { useState } from 'react';
-import { useGameStats } from '../../services/gameStatsService';
+import React, { useState, useEffect } from 'react';
+import { useGameStats } from '../../hooks/useGameStats';
+import wagerSocketService, { WagerData } from '../../services/wagerSocketService';
+import { truncateUsername, formatCurrency } from '../../utils/displayUtils';
+import UserAvatar from '../common/UserAvatar';
 
 const Section1: React.FC<{ 
   additionalTabs?: { 
@@ -19,20 +22,77 @@ const Section1: React.FC<{
   const combinedTabs = [...defaultTabs, ...additionalTabs];
 
   const [activeTab, setActiveTab] = useState<string>(combinedTabs[0].id);
+  const [liveBets, setLiveBets] = useState<WagerData[]>([]);
 
   // Use the game stats hook
-  const { stats } = useGameStats({
-    url: process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'localhost:8000',
-    debug: true
-  });
+  const { gameStats } = useGameStats(
+    process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'localhost:8000'
+  );
+
+  useEffect(() => {
+    // Retrieve token from localStorage
+    const token = localStorage.getItem('token');
+    
+    if (!token) {
+      console.error('No authentication token found');
+      return;
+    }
+
+    // Observer for live bets updates
+    const handleLiveBetsUpdate = (updatedBets: WagerData[]) => {
+      setLiveBets(updatedBets);
+    };
+
+    // Connect to wager socket service
+    const connectSocket = async () => {
+      try {
+        await wagerSocketService.connect(token);
+        
+        // Register live bets observer
+        wagerSocketService.registerLiveBetsObserver(handleLiveBetsUpdate);
+        
+        // Fetch initial live bets
+        await wagerSocketService.fetchLiveBets();
+
+        // Set up periodic refresh (optional, as the observer will handle updates)
+        const intervalId = setInterval(async () => {
+          try {
+            await wagerSocketService.fetchLiveBets();
+          } catch (error) {
+            console.error('Error refreshing live bets:', error);
+          }
+        }, 5000);
+
+        // Cleanup function
+        return () => {
+          clearInterval(intervalId);
+          wagerSocketService.unregisterLiveBetsObserver(handleLiveBetsUpdate);
+          wagerSocketService.disconnect();
+        };
+      } catch (error) {
+        console.error('Socket connection failed:', error);
+      }
+    };
+
+    const cleanupFunction = connectSocket();
+
+    // Cleanup on component unmount
+    return () => {
+      cleanupFunction.then(cleanup => cleanup && cleanup());
+    };
+  }, []);
 
   const renderTabContent = () => {
     switch (activeTab) {
       case 'liveBets':
         return (
           <div className="p-2">
-            <div className="text-[10px] text-center mb-2 text-white/70">
-              Online Players: {stats.onlineUsers} | Total bets: {stats.totalBets > 0 ? stats.onlineUsers : 0}
+            <div className="text-[10px] text-center mb-2 text-white font-bold">
+              Online Players: {gameStats.onlineUsers} | Total bets: {gameStats.totalBetsCount}
+            </div>
+            
+            <div className="text-[10px] text-center mb-2 text-white font-bold">
+              Total Bet Amount: KSH {gameStats.totalBetAmount.toLocaleString()}
             </div>
 
             {/* Header Row */}
@@ -45,7 +105,29 @@ const Section1: React.FC<{
 
             {/* Bets List */}
             <div className="space-y-1">
-              {/* No dummy data */}
+              {liveBets.map((bet, index) => (
+                <div 
+                  key={index} 
+                  className="grid grid-cols-4 text-[10px] text-white/80 px-2 py-1 
+                    hover:bg-white/10 transition-colors duration-200 
+                    rounded-lg items-center"
+                >
+                  <div className="flex items-center space-x-2">
+                    <UserAvatar 
+                      username={bet.username || bet.userId} 
+                      size="xs" 
+                      hideIfEmpty={false}
+                    />
+                  </div>
+                  <span>{formatCurrency(bet.betAmount)}</span>
+                  <span>{bet.cashoutPoint || '-'}x</span>
+                  <span>
+                    {bet.status === 'completed' 
+                      ? formatCurrency(Number(bet.cashoutAmount || 0))
+                      : '-'}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         );

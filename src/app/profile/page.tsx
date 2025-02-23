@@ -2,15 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AuthService, UserProfile, WalletBalanceResponse } from '@/app/lib/auth';
-import WalletService, { WalletUpdatePayload } from '@/services/walletService';
+import { AuthService, UserProfile } from '@/app/lib/auth';
+import { useWallet } from '@/contexts/WalletContext';
 import { toast, Toaster } from 'react-hot-toast';
 
 const ProfilePage: React.FC = () => {
   const router = useRouter();
+  const { balance, loading: walletLoading, error: walletError } = useWallet();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
-  const [formattedBalance, setFormattedBalance] = useState<string>('Loading...');
   const [loading, setLoading] = useState(true);
 
   // Form state
@@ -22,36 +21,6 @@ const ProfilePage: React.FC = () => {
   const [withdrawAmount, setWithdrawAmount] = useState('');
 
   useEffect(() => {
-    let cleanupListener: (() => void) | null = null;
-
-    const setupWalletListener = async () => {
-      try {
-        if (profile) {
-          cleanupListener = WalletService.setupWalletUpdateListener(
-            (update: WalletUpdatePayload) => {
-              // Update wallet balance in real-time with comprehensive payload
-              setWalletBalance(update.balance);
-              // Use WalletService's formatBalance to ensure consistent formatting
-              setFormattedBalance(
-                WalletService.formatBalance(update.balance, update.currency)
-              );
-
-              // Optional: Log transaction details
-              console.group('💰 Profile Wallet Update');
-              console.log('Transaction Type:', update.transactionType);
-              console.log('Amount:', update.amount);
-              console.log('Game ID:', update.gameId);
-              console.groupEnd();
-            },
-            profile.user_id
-          );
-        }
-      } catch (error) {
-        console.error('Failed to set up wallet listener:', error);
-        toast.error('Could not connect to wallet updates');
-      }
-    };
-
     const fetchProfileData = async () => {
       try {
         // Redirect to login if not authenticated
@@ -65,19 +34,6 @@ const ProfilePage: React.FC = () => {
           setProfile(userProfile);
           setUsername(userProfile.username);
           setPhoneNumber(userProfile.phone_number);
-
-          // Fetch wallet balance
-          const balance = await AuthService.getWalletBalance();
-          if (balance) {
-            setWalletBalance(balance.balance);
-            // Use WalletService's formatBalance method for consistent formatting
-            setFormattedBalance(
-              WalletService.formatBalance(balance.balance, balance.currency || 'KSH')
-            );
-          }
-
-          // Setup wallet listener AFTER profile is set
-          await setupWalletListener();
         } else {
           console.error('Failed to fetch user profile');
           toast.error('Unable to load user profile');
@@ -91,14 +47,13 @@ const ProfilePage: React.FC = () => {
     };
 
     fetchProfileData();
+  }, [router]);
 
-    // Cleanup function
-    return () => {
-      if (cleanupListener) {
-        cleanupListener();
-      }
-    };
-  }, []);
+  useEffect(() => {
+    if (walletError) {
+      toast.error(walletError);
+    }
+  }, [walletError]);
 
   // Handle deposit
   const handleDeposit = async (e: React.FormEvent) => {
@@ -112,20 +67,7 @@ const ProfilePage: React.FC = () => {
       }
 
       const response = await AuthService.depositFunds(amount);
-      
       toast.success(`Deposit successful. Transaction ID: ${response.transactionId}`);
-      
-      // Explicitly set the new balance
-      if (response.newBalance !== undefined) {
-        setWalletBalance(response.newBalance);
-      } else {
-        // Fallback to refetching balance if newBalance is not provided
-        const balance = await AuthService.getWalletBalance();
-        if (balance) {
-          setWalletBalance(balance.balance);
-        }
-      }
-      
       setDepositAmount('');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Deposit failed');
@@ -144,20 +86,7 @@ const ProfilePage: React.FC = () => {
       }
 
       const response = await AuthService.withdrawFunds(amount);
-      
       toast.success(`Withdrawal successful. Transaction ID: ${response.transactionId}`);
-      
-      // Explicitly set the new balance
-      if (response.newBalance !== undefined) {
-        setWalletBalance(response.newBalance);
-      } else {
-        // Fallback to refetching balance if newBalance is not provided
-        const balance = await AuthService.getWalletBalance();
-        if (balance) {
-          setWalletBalance(balance.balance);
-        }
-      }
-      
       setWithdrawAmount('');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Withdrawal failed');
@@ -186,7 +115,7 @@ const ProfilePage: React.FC = () => {
     router.push('/login');
   };
 
-  if (loading) {
+  if (loading || walletLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-xl">Loading profile...</div>
@@ -223,7 +152,7 @@ const ProfilePage: React.FC = () => {
           <div className="flex justify-between items-center">
             <span className="text-gray-600">Current Balance:</span>
             <span className="text-xl sm:text-2xl font-bold text-blue-600">
-              {formattedBalance}
+              {balance.toLocaleString('en-US', { style: 'currency', currency: 'KES' })}
             </span>
           </div>
         </div>
