@@ -103,7 +103,6 @@ const GameBoard: React.FC = () => {
 
         // Game state update listener
         socket.on('gameStateUpdate', (newGameState: GameState) => {
-          console.log('Received game state update:', newGameState);
           setGameState(prevState => ({
             ...prevState,
             ...newGameState,

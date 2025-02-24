@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create an axios instance with the backend URL
 export const api = axios.create({
-  baseURL: 'http://192.168.0.12:8000/api', // Adjust the path as needed
+  baseURL: process.env.NEXT_PUBLIC_BACKEND_URL, // Adjust the path as needed
   withCredentials: true, // If you need to send cookies
   headers: {
     'Content-Type': 'application/json',

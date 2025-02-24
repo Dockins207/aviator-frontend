@@ -38,3 +38,5 @@
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    Access-Control-Allow-Origin = "https://2d19-41-212-94-41.ngrok-free.app"
+    Access-Control-Allow-Credentials = "true"
