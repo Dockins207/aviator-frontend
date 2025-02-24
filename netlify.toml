@@ -22,6 +22,12 @@
   status = 200
   force = false
 
+[[redirects]]
+  from = "/api/*"
+  to = "https://2d19-41-212-94-41.ngrok-free.app/api/:splat"
+  status = 200
+  force = true
+
 [functions]
   node_bundler = "esbuild"
 
