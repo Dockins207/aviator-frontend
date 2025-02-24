@@ -65,7 +65,7 @@ export default function RegisterPage() {
 
     try {
       await AuthService.register({ username, phoneNumber, password });
-      router.push('/login');
+      router.push('/game-dashboard');
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message || 'Registration failed. Please try again.');

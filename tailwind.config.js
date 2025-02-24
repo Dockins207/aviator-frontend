@@ -7,6 +7,26 @@ module.exports = {
   ],
   theme: {
     extend: {
+      colors: {
+        'slate': {
+          700: '#334155',
+          800: '#1e293b',
+          900: '#0f172a',
+        },
+        'blue': {
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+        },
+        'red': {
+          500: '#ef4444',
+        },
+        'white': '#ffffff',
+        'gray': {
+          300: '#d1d5db',
+        },
+      },
       keyframes: {
         marquee: {
           '0%': { transform: 'translateX(100%)' },

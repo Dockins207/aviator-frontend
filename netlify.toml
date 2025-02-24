@@ -1,12 +1,15 @@
 [build]
-  command = "npm install && npm run build"
+  command = "npm run clean:install && npm run build"
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_VERSION = "18.17.0"
   NPM_VERSION = "10.2.4"
   NEXT_PUBLIC_BACKEND_URL = "${NEXT_PUBLIC_BACKEND_URL}"
   NEXT_PUBLIC_WEBSOCKET_URL = "${NEXT_PUBLIC_WEBSOCKET_URL}"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
 
 [[redirects]]
   from = "/*"
@@ -18,6 +21,9 @@
   to = "/index.html"
   status = 200
   force = false
+
+[functions]
+  node_bundler = "esbuild"
 
 [[headers]]
   for = "/*"
