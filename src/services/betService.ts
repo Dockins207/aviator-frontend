@@ -61,7 +61,7 @@ export interface CreateBetDetails {
 
 export class BetService {
   private socket: Socket | null = null;
-  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:8000';
+  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
 
   constructor() {
     console.log('🚀 BettingService Constructor Called');

@@ -33,12 +33,9 @@ interface WagerSocketResponse {
 class WagerSocketService {
   private socket: Socket | null = null;
   private token: string | null = null;
-  
-  // Local state for live bets
   private liveBets: WagerData[] = [];
-
-  // Observers for live bets updates
   private liveBetsObservers: Array<(bets: WagerData[]) => void> = [];
+  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
 
   // Register an observer for live bets updates
   registerLiveBetsObserver(observer: (bets: WagerData[]) => void) {
@@ -62,7 +59,7 @@ class WagerSocketService {
 
     this.token = token;
 
-    this.socket = io(`${process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:8000'}/wager-monitor`, {
+    this.socket = io(`${WagerSocketService.SOCKET_URL}/wager-monitor`, {
       auth: {
         token: token
       }

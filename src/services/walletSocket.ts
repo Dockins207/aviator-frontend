@@ -35,6 +35,7 @@ class WalletSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private eventHandlers: Map<string, WalletEventCallback> = new Map();
+  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
 
   connect(token: string) {
     this.token = token;
@@ -44,9 +45,7 @@ class WalletSocketService {
       return;
     }
 
-    const backendUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:8000';
-    
-    this.socket = io(`${backendUrl}/wallet`, {
+    this.socket = io(`${WalletSocketService.SOCKET_URL}/wallet`, {
       auth: {
         token,
       },

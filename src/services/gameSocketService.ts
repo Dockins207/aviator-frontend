@@ -16,6 +16,7 @@ export interface GameState {
 class GameSocketService {
   private socket: Socket | null = null;
   private socketInitPromise: Promise<Socket> | null = null;
+  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
   
   // Current game state
   private gameState: GameState = {
@@ -49,7 +50,7 @@ class GameSocketService {
           return;
         }
 
-        this.socket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://192.168.0.12:8000', {
+        this.socket = io(GameSocketService.SOCKET_URL, {
           auth: { 
             token: accessToken,
             username: profile.username

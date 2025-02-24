@@ -34,6 +34,7 @@ const GameBoard: React.FC = () => {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // 2. All useRef hooks
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -51,80 +52,108 @@ const GameBoard: React.FC = () => {
     // Prevent running on server
     if (typeof window === 'undefined') return;
 
+    let socket: any = null;
+
     // Check authentication first
     const initializeSocket = async () => {
       try {
+        setIsLoading(true);
         const profile = await AuthService.getProfile();
         const token = await AuthService.getToken();
         
-        if (!profile) {
+        if (!profile || !token) {
           setConnectionError('Authentication required');
+          setIsLoading(false);
           return;
         }
 
         // Socket connection
-        const backendUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-        const socket = io(backendUrl, {
+        const backendUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
+        console.log('Connecting to:', backendUrl);
+        
+        socket = io(backendUrl, {
           auth: {
             username: profile.username,
             token: token
           },
+          transports: ['websocket'],
           reconnection: true,
-          reconnectionAttempts: 5,
-          reconnectionDelay: 1000
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 1000,
+          timeout: 20000
         });
 
         // Connection success
         socket.on('connect', () => {
+          console.log('Socket connected successfully');
           setIsConnected(true);
           setConnectionError(null);
+          setIsLoading(false);
           
           // Request initial game state
           socket.emit('requestGameState');
         });
 
         // Error handling
-        socket.on('connect_error', () => {
-          setConnectionError('Failed to connect');
+        socket.on('connect_error', (error: any) => {
+          console.error('Connection error:', error);
+          setConnectionError('Failed to connect to game server. Retrying...');
           setIsConnected(false);
         });
 
         // Game state update listener
         socket.on('gameStateUpdate', (newGameState: GameState) => {
-          const updatedState = {
-            ...gameState,
-            ...newGameState,
-            multiplier: Number(newGameState.multiplier || gameState.multiplier),
-            countdown: Number(newGameState.countdown || gameState.countdown),
-            crashPoint: newGameState.crashPoint ? Number(newGameState.crashPoint) : gameState.crashPoint
-          };
-
+          console.log('Received game state update:', newGameState);
           setGameState(prevState => ({
             ...prevState,
-            ...updatedState
+            ...newGameState,
+            multiplier: Number(newGameState.multiplier || prevState.multiplier),
+            countdown: Number(newGameState.countdown || prevState.countdown),
+            crashPoint: newGameState.crashPoint ? Number(newGameState.crashPoint) : prevState.crashPoint
           }));
-          setGameStateHistory(prev => [...prev, updatedState]);
         });
 
         // Disconnection handling
-        socket.on('disconnect', (reason) => {
+        socket.on('disconnect', (reason: string) => {
+          console.log('Socket disconnected:', reason);
           setIsConnected(false);
-          setConnectionError(`Disconnected: ${reason}`);
+          if (reason === 'io server disconnect') {
+            // Server initiated disconnect, try to reconnect
+            socket.connect();
+          }
         });
 
-        return () => {
-          socket.disconnect();
-        };
-      } catch {
-        setConnectionError('Failed to initialize socket');
+        // Reconnection attempt
+        socket.on('reconnecting', (attemptNumber: number) => {
+          console.log('Attempting to reconnect:', attemptNumber);
+          setConnectionError(`Reconnecting to game server (attempt ${attemptNumber})...`);
+        });
+
+        // Reconnection success
+        socket.on('reconnect', () => {
+          console.log('Reconnected successfully');
+          setIsConnected(true);
+          setConnectionError(null);
+          socket.emit('requestGameState');
+        });
+
+      } catch (error) {
+        console.error('Socket initialization error:', error);
+        setConnectionError('Failed to initialize game connection. Please refresh the page.');
+        setIsLoading(false);
       }
     };
 
-    const socketCleanup = initializeSocket();
+    initializeSocket();
+
+    // Cleanup function
     return () => {
-      socketCleanup.then(cleanup => cleanup?.());
+      if (socket) {
+        console.log('Cleaning up socket connection');
+        socket.disconnect();
+      }
     };
-  }, [gameState]);
+  }, []);
 
   useEffect(() => {
     if (gameStateHistory.length > 0) {
@@ -165,6 +194,29 @@ const GameBoard: React.FC = () => {
   // Prevent rendering on server
   if (!isClient) {
     return null;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="w-full h-[400px] bg-slate-800 rounded-lg flex flex-col items-center justify-center space-y-4">
+        <div className="text-white text-lg">Loading game board...</div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+      </div>
+    );
+  }
+
+  if (connectionError) {
+    return (
+      <div className="w-full h-[400px] bg-slate-800 rounded-lg flex flex-col items-center justify-center space-y-4">
+        <div className="text-red-500 text-lg text-center px-4">{connectionError}</div>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+        >
+          Retry Connection
+        </button>
+      </div>
+    );
   }
 
   const getRayClass = () => {

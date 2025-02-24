@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base URL from environment with fallback
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.0.12:8000';
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
 
 // Configure Axios with CORS and error handling
 const axiosInstance = axios.create({

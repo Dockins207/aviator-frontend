@@ -1,10 +1,10 @@
 [build]
-  command = "npm run build"
-  publish = "out"
+  command = "npm install && npm run build"
+  publish = ".next"
 
 [build.environment]
   NODE_VERSION = "18"
-  NPM_FLAGS = "--version"
+  NPM_VERSION = "10.2.4"
   NEXT_PUBLIC_BACKEND_URL = "${NEXT_PUBLIC_BACKEND_URL}"
   NEXT_PUBLIC_WEBSOCKET_URL = "${NEXT_PUBLIC_WEBSOCKET_URL}"
 
