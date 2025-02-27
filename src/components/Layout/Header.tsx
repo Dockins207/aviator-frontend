@@ -100,7 +100,7 @@ const Header: React.FC = () => {
           {!isAuthenticated ? (
             <>
               <Link 
-                href="/login" 
+                href="/auth/login" 
                 className="text-gray-300 hover:text-white text-sm flex items-center space-x-2"
                 onClick={closeMenu}
               >
@@ -108,7 +108,7 @@ const Header: React.FC = () => {
                 <span>Login</span>
               </Link>
               <Link 
-                href="/register" 
+                href="/auth/register" 
                 className="text-gray-300 hover:text-white text-sm flex items-center space-x-2"
                 onClick={closeMenu}
               >
@@ -119,7 +119,7 @@ const Header: React.FC = () => {
           ) : (
             <>
               <Link 
-                href="/game-dashboard" 
+                href="/auth/game-dashboard" 
                 className="text-gray-300 hover:text-white text-sm flex items-center space-x-2"
                 onClick={closeMenu}
               >
@@ -127,7 +127,7 @@ const Header: React.FC = () => {
                 <span>Dashboard</span>
               </Link>
               <Link 
-                href="/profile" 
+                href="/auth/profile" 
                 className="text-gray-300 hover:text-white text-sm flex items-center space-x-2"
                 onClick={closeMenu}
               >

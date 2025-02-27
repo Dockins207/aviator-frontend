@@ -35,7 +35,7 @@ class WagerSocketService {
   private token: string | null = null;
   private liveBets: WagerData[] = [];
   private liveBetsObservers: Array<(bets: WagerData[]) => void> = [];
-  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
+  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
 
   // Register an observer for live bets updates
   registerLiveBetsObserver(observer: (bets: WagerData[]) => void) {

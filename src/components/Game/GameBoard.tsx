@@ -31,10 +31,8 @@ const GameBoard: React.FC = () => {
   });
   const [gameStateHistory, setGameStateHistory] = useState<GameState[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [isClient, setIsClient] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
   // 2. All useRef hooks
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -57,13 +55,10 @@ const GameBoard: React.FC = () => {
     // Check authentication first
     const initializeSocket = async () => {
       try {
-        setIsLoading(true);
         const profile = await AuthService.getProfile();
         const token = await AuthService.getToken();
         
         if (!profile || !token) {
-          setConnectionError('Authentication required');
-          setIsLoading(false);
           return;
         }
 
@@ -87,8 +82,6 @@ const GameBoard: React.FC = () => {
         socket.on('connect', () => {
           console.log('Socket connected successfully');
           setIsConnected(true);
-          setConnectionError(null);
-          setIsLoading(false);
           
           // Request initial game state
           socket.emit('requestGameState');
@@ -97,7 +90,6 @@ const GameBoard: React.FC = () => {
         // Error handling
         socket.on('connect_error', (error: any) => {
           console.error('Connection error:', error);
-          setConnectionError('Failed to connect to game server. Retrying...');
           setIsConnected(false);
         });
 
@@ -122,24 +114,8 @@ const GameBoard: React.FC = () => {
           }
         });
 
-        // Reconnection attempt
-        socket.on('reconnecting', (attemptNumber: number) => {
-          console.log('Attempting to reconnect:', attemptNumber);
-          setConnectionError(`Reconnecting to game server (attempt ${attemptNumber})...`);
-        });
-
-        // Reconnection success
-        socket.on('reconnect', () => {
-          console.log('Reconnected successfully');
-          setIsConnected(true);
-          setConnectionError(null);
-          socket.emit('requestGameState');
-        });
-
       } catch (error) {
         console.error('Socket initialization error:', error);
-        setConnectionError('Failed to initialize game connection. Please refresh the page.');
-        setIsLoading(false);
       }
     };
 
@@ -175,7 +151,7 @@ const GameBoard: React.FC = () => {
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }, [isClient, canvasRef, isConnected, connectionError]);
+  }, [isClient, canvasRef, isConnected]);
 
   useEffect(() => {
     const rays = document.querySelector(`.${styles.rays}`) as HTMLElement;
@@ -193,29 +169,6 @@ const GameBoard: React.FC = () => {
   // Prevent rendering on server
   if (!isClient) {
     return null;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="w-full h-[400px] bg-slate-800 rounded-lg flex flex-col items-center justify-center space-y-4">
-        <div className="text-white text-lg">Loading game board...</div>
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-      </div>
-    );
-  }
-
-  if (connectionError) {
-    return (
-      <div className="w-full h-[400px] bg-slate-800 rounded-lg flex flex-col items-center justify-center space-y-4">
-        <div className="text-red-500 text-lg text-center px-4">{connectionError}</div>
-        <button 
-          onClick={() => window.location.reload()} 
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-        >
-          Retry Connection
-        </button>
-      </div>
-    );
   }
 
   const getRayClass = () => {

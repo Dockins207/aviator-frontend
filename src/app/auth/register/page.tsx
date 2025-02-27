@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AuthService } from '../lib/auth';
+import { AuthService } from '@/app/lib/auth';
 import Link from 'next/link';
+import { PhoneValidator } from '@/utils/phoneValidator';
 
 export default function RegisterPage() {
   const [username, setUsername] = useState('');
@@ -16,15 +17,9 @@ export default function RegisterPage() {
   // Check authentication on component mount
   useEffect(() => {
     if (AuthService.isAuthenticated()) {
-      router.replace('/game-dashboard');
+      router.replace('/auth/game-dashboard');
     }
   }, [router]);
-
-  const validatePhoneNumber = (phone: string): boolean => {
-    // Support formats: +254712345678, 0712345678, 0112345678
-    const phoneRegex = /^(\+?254|0)1?[17]\d{8}$/;
-    return phoneRegex.test(phone);
-  };
 
   const validatePassword = (pass: string): boolean => {
     // At least 8 characters, must include:
@@ -39,33 +34,46 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
 
-    // Validate username
-    if (username.length < 3) {
-      setError('Username must be at least 3 characters long');
-      return;
-    }
-
-    // Validate phone number
-    if (!validatePhoneNumber(phoneNumber)) {
-      setError('Invalid phone number. Must be in Kenyan format (+254 or 07XXXXXXXX)');
-      return;
-    }
-
-    // Validate password
-    if (!validatePassword(password)) {
-      setError('Password must be at least 8 characters long and include uppercase, lowercase, and number');
-      return;
-    }
-
-    // Check password match
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-
     try {
-      await AuthService.register({ username, phoneNumber, password });
-      router.push('/game-dashboard');
+      // Validate username
+      if (username.length < 3) {
+        setError('Username must be at least 3 characters long');
+        return;
+      }
+
+      // Use the PhoneValidator to normalize the phone number
+      const normalizedPhone = PhoneValidator.normalize(phoneNumber);
+      if (!normalizedPhone) {
+        setError('Invalid phone number. Must be in Kenyan format (+254 or 07XXXXXXXX)');
+        return;
+      }
+
+      // Validate password
+      if (!validatePassword(password)) {
+        setError('Password must be at least 8 characters long and include uppercase, lowercase, and number');
+        return;
+      }
+
+      // Check password match
+      if (password !== confirmPassword) {
+        setError('Passwords do not match');
+        return;
+      }
+
+      await AuthService.register({ 
+        username, 
+        phoneNumber: normalizedPhone, 
+        password 
+      });
+      
+      // After successful registration, try to log in automatically
+      const userProfile = await AuthService.login({ 
+        phoneNumber: normalizedPhone, 
+        password 
+      });
+      
+      console.log('Registered and logged in user:', userProfile);
+      router.push('/auth/game-dashboard');
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message || 'Registration failed. Please try again.');
@@ -104,6 +112,7 @@ export default function RegisterPage() {
                   focus:outline-none focus:ring-2 focus:ring-blue-500 
                   transition duration-300 ease-in-out"
                 required
+                minLength={3}
               />
             </div>
             
@@ -122,6 +131,7 @@ export default function RegisterPage() {
                   transition duration-300 ease-in-out"
                 required
               />
+              <p className="mt-1 text-sm text-gray-400">Format: +254712345678 or 0712345678</p>
             </div>
             
             <div>
@@ -138,7 +148,9 @@ export default function RegisterPage() {
                   focus:outline-none focus:ring-2 focus:ring-blue-500 
                   transition duration-300 ease-in-out"
                 required
+                minLength={8}
               />
+              <p className="mt-1 text-sm text-gray-400">Must include uppercase, lowercase, and number</p>
             </div>
             
             <div>
@@ -172,7 +184,7 @@ export default function RegisterPage() {
           
           <div className="mt-4 text-center">
             <Link 
-              href="/login" 
+              href="/auth/login" 
               className="text-blue-400 hover:text-blue-300 text-sm"
             >
               Already have an account? Sign in

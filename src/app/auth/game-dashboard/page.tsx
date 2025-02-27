@@ -23,10 +23,21 @@ export function GameDashboardContent() {
   useEffect(() => {
     const initializePage = async () => {
       try {
+        const token = AuthService.getToken();
         const profile = await AuthService.getProfile();
-        const token = await AuthService.getToken();
         
-        if (!profile || !token) {
+        console.group('🔐 Game Dashboard Authentication Check');
+        console.log('Token present:', !!token);
+        console.log('Token details:', {
+          length: token ? token.length : 'N/A',
+          firstChars: token ? token.substring(0, 10) : 'N/A'
+        });
+        console.log('Profile present:', !!profile);
+        console.log('Profile details:', profile ? JSON.stringify(profile) : 'N/A');
+        console.groupEnd();
+        
+        if (!token || !profile) {
+          console.warn('🚨 Authentication failed. Redirecting to login.');
           window.location.href = '/auth/login';
           return;
         }
@@ -35,8 +46,12 @@ export function GameDashboardContent() {
         await new Promise(resolve => setTimeout(resolve, 1500));
         setIsLoading(false);
       } catch (error) {
-        console.error('Failed to initialize page:', error);
-        setIsLoading(false);
+        console.group('🚨 Game Dashboard Initialization Error');
+        console.error('Error details:', error);
+        console.log('Redirecting to login');
+        console.groupEnd();
+        
+        window.location.href = '/auth/login';
       }
     };
 

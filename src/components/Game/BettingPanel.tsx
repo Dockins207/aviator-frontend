@@ -1,4 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import betService from '@/services/betService';
+import { toast } from 'react-hot-toast';
+import { AuthService } from '@/app/lib/auth';
+
+// Types for bet response
+interface BetResponse {
+  success: boolean;
+  message?: string;
+  data?: {
+    betId?: number;
+    [key: string]: any;
+  };
+}
 
 interface BettingControlsProps {
   balance?: number;
@@ -66,7 +79,7 @@ const NumericInput: React.FC<{
 
   return (
     <div className="flex flex-col">
-      {label && <label className="text-[10px] text-gray-400 mb-1">{label}</label>}
+      {label && <label className="text-gray-400 text-[10px] mb-1">{label}</label>}
       <input
         type="text"
         value={value}
@@ -79,37 +92,100 @@ const NumericInput: React.FC<{
   );
 };
 
-const BettingPanel: React.FC<BettingControlsProps> = ({ balance }) => {
+const BettingPanel: React.FC<BettingControlsProps> = ({ balance: initialBalance }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'auto'>('manual');
+  const [currentBalance, setCurrentBalance] = useState<number>(initialBalance || 0);
 
-  const handlePlaceBet = useCallback(async (betAmount: number, autoMode: boolean = false, autoMultiplier: string = '') => {
+  // Fetch current balance
+  const fetchBalance = useCallback(async () => {
     try {
-      // Validate bet amount
-      if (betAmount <= 0) {
-        return;
+      const walletData = await AuthService.getWalletBalance();
+      if (walletData) {
+        setCurrentBalance(walletData.balance);
       }
-
-      console.log(' Bet Placement Attempt', {
-        betAmount,
-        autoMode,
-        autoMultiplier
-      });
-    } catch (error: unknown) {
-      console.error(' Bet Placement Error', {
-        error: error instanceof Error ? {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        } : error,
-        betDetails: {
-          betAmount,
-          autoMode,
-          autoMultiplier
-        },
-        timestamp: new Date().toISOString()
-      });
+    } catch (error) {
+      console.error('Failed to fetch wallet balance:', error);
     }
   }, []);
+
+  // Fetch balance on mount and after bet placement
+  useEffect(() => {
+    fetchBalance();
+  }, [fetchBalance]);
+
+  const handlePlaceBet = useCallback(async (betAmount: number, autoMode: boolean = false, autoMultiplier: string = '') => {
+    if (!AuthService.isAuthenticated()) {
+      toast.error('Please log in to place bets', {
+        position: 'top-right',
+        duration: 3000
+      });
+      return;
+    }
+
+    try {
+      // Validate bet amount
+      if (!betAmount || Number(betAmount) <= 0) {
+        throw new Error('Please enter a valid bet amount');
+      }
+
+      // Validate balance
+      if (Number(betAmount) > currentBalance) {
+        throw new Error('Insufficient balance');
+      }
+
+      // Create bet payload
+      const betPayload = {
+        amount: Number(betAmount),
+        autoCashoutMultiplier: autoMultiplier ? Number(autoMultiplier) : undefined
+      };
+
+      // Actual bet placement using betService
+      const result = await betService.placeBet(betPayload);
+
+      // Handle bet placement result
+      if (result.data?.betId) {
+        // Show success toast
+        toast.success('Bet placed successfully!', {
+          position: 'top-right',
+          duration: 2000
+        });
+
+        // Log successful bet placement
+        console.log('Bet Placement Success', {
+          amount: betAmount,
+          betId: result.data.betId,
+          timestamp: new Date().toISOString()
+        });
+
+        // Fetch updated balance after successful bet
+        await fetchBalance();
+
+        // Return bet details
+        return {
+          balance: currentBalance
+        };
+
+      } else {
+        throw new Error('No bet ID received from server');
+      }
+    } catch (error) {
+      // Error logging and toast
+      console.error('Bet Placement Error:', error);
+      
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to place bet. Please try again.';
+      
+      toast.error(errorMessage, {
+        position: 'top-right',
+        duration: 3000
+      });
+
+      // Reset betting state
+      // setIsBetting(false);
+      // setBetId(null);
+    }
+  }, [currentBalance]);
 
   const BetSection: React.FC<{
     section: 'first' | 'second';
@@ -701,13 +777,13 @@ const BettingPanel: React.FC<BettingControlsProps> = ({ balance }) => {
       <div className="grid grid-cols-2 gap-1 mt-1 sm:grid-cols-2 max-w-full">
         <BetSection 
           section="first"
-          balance={balance ?? 0}
+          balance={currentBalance}
           isPlaying={false}
           onPlaceBet={placeBet}
         />
         <BetSection 
           section="second"
-          balance={balance ?? 0}
+          balance={currentBalance}
           isPlaying={false}
           onPlaceBet={placeBet}
         />

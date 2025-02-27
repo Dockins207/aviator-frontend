@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base URL from environment with fallback
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
 
 // Configure Axios with CORS and error handling
 const axiosInstance = axios.create({
@@ -75,31 +75,44 @@ export interface WalletBalanceResponse {
 
 // Authentication Service
 export class AuthService {
-  // Enhanced token management methods
+  // Enhanced token retrieval with multiple strategies
   private static getValidToken(): string | null {
     try {
       // Ensure we're in a browser environment
       if (typeof window === 'undefined') {
+        console.warn('🚨 Not in browser environment');
         return null;
       }
 
-      // Check multiple storage locations
+      // Check multiple storage locations with detailed logging
       const storageLocations = [
-        () => localStorage.getItem('token'),
-        () => sessionStorage.getItem('token'),
+        () => localStorage.getItem('aviator_auth_token'),
+        () => sessionStorage.getItem('aviator_auth_token'),
         // Add more storage locations if needed
       ];
 
       for (const getToken of storageLocations) {
         const token = getToken();
         
+        console.group('🔍 Token Retrieval Attempt');
+        console.log('Raw token:', token ? 'Present' : 'Not found');
+        
         // Validate token if found
-        if (token && this.validateToken(token)) {
-          return token;
+        if (token) {
+          const isValid = this.validateToken(token);
+          console.log('Token validation result:', isValid);
+          console.groupEnd();
+          
+          if (isValid) {
+            return token;
+          }
         }
+        
+        console.groupEnd();
       }
 
       // No valid token found
+      console.warn('🚨 No valid token found in any storage location');
       return null;
     } catch (error) {
       console.warn('🚨 Token Retrieval Error:', {
@@ -129,15 +142,37 @@ export class AuthService {
         return false;
       }
 
-      // Optional: Decode and check expiration
+      // Decode payload to check required fields
       const base64Payload = parts[1];
-      const payload = JSON.parse(atob(base64Payload));
+      const payload = JSON.parse(atob(base64Payload.replace(/-/g, '+').replace(/_/g, '/')));
       
+      // Check for required JWT fields from backend
+      const requiredFields = [
+        'user_id', 
+        'username', 
+        'role', 
+        'phone_number', 
+        'is_active'
+      ];
+
+      const missingFields = requiredFields.filter(field => !payload.hasOwnProperty(field));
+      
+      if (missingFields.length > 0) {
+        console.warn('🚨 Token Validation Failed: Missing required fields', {
+          missingFields,
+          presentFields: Object.keys(payload)
+        });
+        return false;
+      }
+
       // Check token expiration
       if (payload.exp) {
         const currentTime = Math.floor(Date.now() / 1000);
         if (payload.exp < currentTime) {
-          console.warn('🚨 Token Validation Failed: Token expired');
+          console.warn('🚨 Token Validation Failed: Token expired', {
+            currentTime,
+            expirationTime: payload.exp
+          });
           return false;
         }
       }
@@ -160,7 +195,7 @@ export class AuthService {
   private static setToken(token: string): void {
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem('token', token);
+        localStorage.setItem('aviator_auth_token', token);
         console.log('Token set successfully:', {
           tokenLength: token.length,
           tokenFirstChars: token.substring(0, 10)
@@ -174,7 +209,7 @@ export class AuthService {
   // Public method to remove token
   static removeToken(): void {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('token');
+      localStorage.removeItem('aviator_auth_token');
       console.log('Token removed from localStorage');
     }
   }
@@ -244,31 +279,52 @@ export class AuthService {
   }
 
   // Login user with precise error handling
-  static async login(credentials: LoginData) {
-    // Validate input
-    if (!validatePhoneNumber(credentials.phoneNumber)) {
-      throw new Error('Invalid phone number format');
-    }
-
+  static async login(credentials: LoginData): Promise<UserProfile> {
     try {
-      const response = await axiosInstance.post('/api/auth/login', {
-        phoneNumber: normalizePhoneNumber(credentials.phoneNumber),
+      const normalizedPhone = normalizePhoneNumber(credentials.phoneNumber);
+      
+      // Log the request payload for debugging
+      console.log('Login request payload:', {
+        phoneNumber: normalizedPhone,
+        password: '***'
+      });
+
+      const response = await axiosInstance.post<{
+        token: string;
+        user: UserProfile;
+      }>('/api/auth/login', {
+        phoneNumber: normalizedPhone,  // Ensure this matches backend expectation
         password: credentials.password
       });
-      
-      // Store token and extract user details
-      if (response.data.token) {
-        this.setToken(response.data.token);
-      } else {
-        throw new Error('No authentication token received');
-      }
-      
-      return response.data;
+
+      // Store token
+      this.setToken(response.data.token);
+
+      return response.data.user;
     } catch (error) {
-      console.error('Login Error:', {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
+      if (axios.isAxiosError(error) && error.response) {
+        console.error('Login error:', {
+          status: error.response.status,
+          data: error.response.data,
+          headers: error.response.headers
+        });
+        
+        if (error.response.status === 400) {
+          const missingFields = error.response.data?.missingFields;
+          if (missingFields) {
+            const fieldList = Object.entries(missingFields)
+              .filter(([_, missing]) => missing)
+              .map(([field]) => field)
+              .join(', ');
+            throw new Error(`Missing required fields: ${fieldList}`);
+          }
+          throw new Error(error.response.data.message || 'Invalid phone number or password');
+        } else if (error.response.status === 401) {
+          throw new Error('Invalid credentials');
+        } else {
+          throw new Error('Login failed. Please try again.');
+        }
+      }
       throw error;
     }
   }

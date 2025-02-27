@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AuthService } from '../lib/auth';
+import { AuthService } from '@/app/lib/auth';
+import { PhoneValidator } from '@/utils/phoneValidator';
 import Link from 'next/link';
 
 // Define proper error type
@@ -10,6 +11,11 @@ interface LoginError {
   message: string;
   status?: number;
   code?: string;
+}
+
+interface LoginResponse {
+  user: any;
+  token: string;
 }
 
 export default function LoginPage() {
@@ -21,52 +27,44 @@ export default function LoginPage() {
   // Check authentication on component mount
   useEffect(() => {
     if (AuthService.isAuthenticated()) {
-      router.replace('/game-dashboard');
+      router.replace('/auth/game-dashboard');
     }
   }, [router]);
-
-  const validatePhoneNumber = (phone: string): boolean => {
-    // Support formats: +254712345678, 0712345678, 0112345678
-    const phoneRegex = /^(\+?254|0)1?[17]\d{8}$/;
-    return phoneRegex.test(phone);
-  };
-
-  const validatePassword = (pass: string): boolean => {
-    // At least 8 characters, must include:
-    // - At least one uppercase letter
-    // - At least one lowercase letter
-    // - At least one number
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-    return passwordRegex.test(pass);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    // Validate phone number
-    if (!validatePhoneNumber(phoneNumber)) {
-      setError('Invalid phone number. Must be in Kenyan format (+254 or 07XXXXXXXX)');
+    // Validate phone number using PhoneValidator
+    const phoneValidation = PhoneValidator.validate(phoneNumber);
+    if (!phoneValidation.isValid) {
+      setError(phoneValidation.error || 'Invalid phone number');
       return;
     }
 
     // Validate password
-    if (!validatePassword(password)) {
-      setError('Password must be at least 8 characters long and include uppercase, lowercase, and number');
+    if (!password) {
+      setError('Password is required');
+      return;
+    }
+
+    // Optional: Add more password validation if needed
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long');
       return;
     }
 
     try {
-      const loginResponse = await AuthService.login({ phoneNumber, password });
+      const userProfile = await AuthService.login({ 
+        phoneNumber: phoneValidation.normalizedNumber || phoneNumber, 
+        password 
+      });
       
-      // Destructure user details from login response
-      const { user } = loginResponse;
-      
-      // Optional: Log user details or perform additional actions
-      console.log('Logged in user:', user);
+      // Log user details
+      console.log('Logged in user:', userProfile);
       
       // Redirect to dashboard
-      router.push('/game-dashboard');
+      router.push('/auth/game-dashboard');
     } catch (err: unknown) {
       // Detailed error logging
       console.error('Login Error Details:', {
@@ -102,7 +100,7 @@ export default function LoginPage() {
                 id="phoneNumber"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+254712345678"
+                placeholder="+254712345678 or 0712345678"
                 className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white 
                   focus:outline-none focus:ring-2 focus:ring-blue-500 
                   transition duration-300 ease-in-out"
@@ -141,7 +139,7 @@ export default function LoginPage() {
           
           <div className="mt-4 text-center">
             <Link 
-              href="/register" 
+              href={'/auth/register'} 
               className="text-blue-400 hover:text-blue-300 text-sm"
             >
               Don&apos;t have an account? Register

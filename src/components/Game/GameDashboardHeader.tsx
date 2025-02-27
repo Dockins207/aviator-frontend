@@ -138,7 +138,7 @@ const GameDashboardHeader = ({ balance }: GameDashboardHeaderProps) => {
         >
           <nav className="flex flex-col p-4 space-y-2">
             <Link 
-              href="/profile" 
+              href="/auth/profile" 
               className="text-gray-300 hover:text-white text-sm flex items-center space-x-2"
               onClick={closeMenu}
             >

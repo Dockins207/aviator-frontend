@@ -155,7 +155,10 @@ const ProfilePage: React.FC = () => {
           <div className="flex justify-between items-center">
             <span className="text-gray-600">Current Balance:</span>
             <span className="text-xl sm:text-2xl font-bold text-blue-600">
-              {balance.toLocaleString('en-US', { style: 'currency', currency: 'KES' })}
+              {balance !== undefined 
+                ? balance.toLocaleString('en-US', { style: 'currency', currency: 'KES' }) 
+                : 'Loading...'
+              }
             </span>
           </div>
         </div>

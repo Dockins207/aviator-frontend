@@ -1,15 +1,26 @@
 import { v4 as uuidv4 } from 'uuid';
+import { 
+  AUTH_TOKEN_KEY, 
+  DEVICE_ID_KEY,
+  getToken,
+  setToken,
+  clearToken,
+  api,
+  UserProfile,
+  AuthResponse
+} from '../utils/authUtils';
+import { PhoneValidator } from '../utils/phoneValidator';
 
-// Define UserProfile interface
-interface UserProfile {
-    username: string;
-    balance: number;
+interface LoginCredentials {
+  phoneNumber: string;
+  password: string;
+}
+
+interface RegisterCredentials extends LoginCredentials {
+  username: string;
 }
 
 class AuthService {
-  private static readonly DEVICE_ID_KEY = 'aviator_device_id';
-  private static readonly AUTH_TOKEN_KEY = 'aviator_auth_token';
-
   /**
    * Gets the unique device ID, creating one if it doesn't exist
    */
@@ -18,65 +29,143 @@ class AuthService {
       return 'server-side';
     }
 
-    let deviceId = localStorage.getItem(this.DEVICE_ID_KEY);
+    let deviceId = localStorage.getItem(DEVICE_ID_KEY);
     
     if (!deviceId) {
       deviceId = uuidv4();
-      localStorage.setItem(this.DEVICE_ID_KEY, deviceId);
+      localStorage.setItem(DEVICE_ID_KEY, deviceId);
     }
     
     return deviceId;
   }
 
   /**
-   * Gets the authentication token from localStorage
+   * Validate login credentials before submission
    */
-  static getToken(): string | null {
-    if (typeof window === 'undefined') {
-      return null;
+  static validateLoginCredentials(credentials: LoginCredentials): void {
+    // Validate phone number
+    const phoneValidation = PhoneValidator.validate(credentials.phoneNumber);
+    if (!phoneValidation.isValid) {
+      throw new Error(phoneValidation.error || 'Invalid phone number');
     }
-    return localStorage.getItem(this.AUTH_TOKEN_KEY);
+
+    // Validate password
+    if (!credentials.password) {
+      throw new Error('Password is required');
+    }
+
+    // Optional: Add password strength check if needed
+    if (credentials.password.length < 6) {
+      throw new Error('Password must be at least 6 characters long');
+    }
   }
 
   /**
-   * Sets the authentication token in localStorage
+   * Validate register credentials before submission
    */
-  static setToken(token: string): void {
-    if (typeof window === 'undefined') {
-      return;
+  static validateRegisterCredentials(credentials: RegisterCredentials): void {
+    // Validate phone number
+    const phoneValidation = PhoneValidator.validate(credentials.phoneNumber);
+    if (!phoneValidation.isValid) {
+      throw new Error(phoneValidation.error || 'Invalid phone number');
     }
-    localStorage.setItem(this.AUTH_TOKEN_KEY, token);
+
+    // Validate username
+    if (!credentials.username) {
+      throw new Error('Username is required');
+    }
+
+    // Validate password
+    if (!credentials.password) {
+      throw new Error('Password is required');
+    }
+
+    // Optional: Add password strength check if needed
+    if (credentials.password.length < 6) {
+      throw new Error('Password must be at least 6 characters long');
+    }
   }
 
   /**
-   * Removes the authentication token from localStorage
+   * Login user with phone number and password
    */
-  static clearToken(): void {
-    if (typeof window === 'undefined') {
-      return;
+  static async login(credentials: LoginCredentials): Promise<AuthResponse> {
+    try {
+      // Validate credentials before attempting login
+      this.validateLoginCredentials(credentials);
+
+      // Normalize phone number
+      const normalizedPhone = PhoneValidator.normalize(credentials.phoneNumber);
+      
+      const response = await api.post<AuthResponse>('/api/auth/login', {
+        phone_number: normalizedPhone,
+        password: credentials.password
+      });
+
+      if (response.data.token) {
+        setToken(response.data.token);
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
     }
-    localStorage.removeItem(this.AUTH_TOKEN_KEY);
+  }
+
+  /**
+   * Register a new user
+   */
+  static async register(credentials: RegisterCredentials): Promise<AuthResponse> {
+    try {
+      // Validate credentials before attempting registration
+      this.validateRegisterCredentials(credentials);
+
+      // Normalize phone number
+      const normalizedPhone = PhoneValidator.normalize(credentials.phoneNumber);
+      
+      const response = await api.post<AuthResponse>('/api/auth/register', {
+        username: credentials.username,
+        phone_number: normalizedPhone,
+        password: credentials.password
+      });
+
+      if (response.data.token) {
+        setToken(response.data.token);
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Logout user
+   */
+  static logout(): void {
+    clearToken();
   }
 
   /**
    * Checks if user is authenticated
    */
   static isAuthenticated(): boolean {
-    return !!this.getToken();
+    return !!getToken();
   }
 
   /**
    * Gets the user profile
    */
   static async getProfile(): Promise<UserProfile> {
-    // Mock implementation, replace with actual API call
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            const profile = { username: 'User123', balance: 1000 }; // Mock balance
-            console.log('Fetched Profile:', profile);
-            resolve(profile);
-        }, 1000);
-    });
+    try {
+      const response = await api.get<UserProfile>('/api/auth/profile');
+      return response.data;
+    } catch (error) {
+      console.error('Get profile error:', error);
+      throw error;
+    }
   }
 }
 

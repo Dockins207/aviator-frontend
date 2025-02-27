@@ -1,31 +1,46 @@
 import axios from 'axios';
+import { getToken, clearToken } from '../utils/authUtils';
 
-// Create an axios instance with the backend URL
-export const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_BACKEND_URL, // Adjust the path as needed
-  withCredentials: true, // If you need to send cookies
+// Base URL from environment with fallback
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
+
+// Configure Axios with CORS and error handling
+const api = axios.create({
+  baseURL: BASE_URL,
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json'
   },
+  timeout: 10000,
 });
 
-// Optional: Add request interceptor for logging or adding auth tokens
-api.interceptors.request.use((config) => {
-  // You can add authentication token here if needed
-  // const token = localStorage.getItem('token');
-  // if (token) {
-  //   config.headers.Authorization = `Bearer ${token}`;
-  // }
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+// Add request interceptor for authentication
+api.interceptors.request.use(
+  (config) => {
+    const token = getToken();
+    if (token) {
+      config.headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-// Optional: Add response interceptor for global error handling
-api.interceptors.response.use((response) => {
-  return response;
-}, (error) => {
-  // Handle errors globally
-  console.error('API Error:', error);
-  return Promise.reject(error);
-});
+// Add response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token is invalid or expired
+      clearToken();
+      
+      // Redirect to login page if in browser environment
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default api;

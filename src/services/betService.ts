@@ -1,195 +1,488 @@
-// Removed TokenManager references
-import { io, Socket } from 'socket.io-client';
-import type { AxiosError } from 'axios';
+import { io, Socket as SocketClient } from 'socket.io-client';
 import { AuthService } from '@/app/lib/auth';
+import { api, getToken } from '../utils/authUtils';
 
-export interface CashoutStrategy {
-  type: 'manual' | 'auto';
-  multiplier?: number;
+// Define specific error types for socket and bet-related errors
+export interface BetDetails {
+  amount: number;
+  autoCashoutMultiplier?: number;
 }
 
-export interface CashoutRequest {
-  betId: string;
-  multiplier: number;
+export interface BetResponse {
+  success: boolean;
+  message?: string;
+  data?: Record<string, any>;
 }
 
-// Custom error for validation
-class ValidationError extends Error {
-  constructor(public code: string, public details?: { message: string }) {
-    super(details?.message || 'Validation Error');
-    this.name = 'ValidationError';
+export interface BetPlacementResponse extends BetResponse {
+  data?: {
+    betId?: number;
+    [key: string]: any;
+  };
+}
+
+export interface SocketError extends Error {
+  name: string;
+  message: string;
+  stack?: string;
+  socketId?: string;
+  timestamp?: string;
+  currentMultiplier?: number;
+}
+
+export interface BetError extends SocketError {
+  betId?: number;
+  amount?: number;
+  autoCashoutMultiplier?: number;
+}
+
+export class BetServiceError extends Error {
+  constructor(
+    public message: string, 
+    public details?: Partial<BetError>
+  ) {
+    super(message);
+    this.name = 'BetServiceError';
   }
 }
 
-// Define proper types instead of 'any'
-interface BetServiceError {
-  message: string;
-  code?: string;
-  status?: number;
+export class SocketConnectionError extends Error {
+  constructor(
+    public message: string, 
+    public details?: Partial<SocketError>
+  ) {
+    super(message);
+    this.name = 'SocketConnectionError';
+  }
 }
 
-interface BetServiceResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
+// Define the event map for our socket instance
+interface ServerToClientEvents {
+  connect: () => void;
+  connect_error: (err: Error) => void;
+  disconnect: (reason: string) => void;
+  error: (err: Error) => void;
+  betPlaced: (data: BetPlacementResponse) => void;
+  cashout: (response: BetResponse) => void;
 }
 
-interface BetDetails {
-  id: string;
-  amount: number;
-  currency: string;
-  status: 'pending' | 'won' | 'lost';
-  createdAt: Date;
-  updatedAt: Date;
-  autoCashoutEnabled: boolean;
-  autoCashoutMultiplier?: number;
+interface ClientToServerEvents {
+  placeBet: (
+    data: { token: string; amount: number; autoCashoutMultiplier?: number },
+    callback: (response: BetPlacementResponse) => void
+  ) => void;
+  cashout: (
+    data: { token: string; betId: number; currentMultiplier: number },
+    callback: (response: BetResponse) => void
+  ) => void;
 }
 
-interface BetResponse {
-  success: boolean;
-  message?: string;
-  data?: BetDetails;
-  error?: string;
+// Define socket data interface
+interface SocketData {
+  token?: string;
 }
 
-// Add new interface for creating bets
-export interface CreateBetDetails {
-  amount: number;
-  autoCashoutEnabled: boolean;
-  autoCashoutMultiplier?: number;
+// Define socket options interface
+interface SocketOptions {
+  // Authentication and custom headers
+  auth?: {
+    token?: string;
+    authorization?: string;
+    [key: string]: any;
+  };
+  extraHeaders?: Record<string, string>;
+  query?: Record<string, string | number | boolean>;
+
+  // Connection options
+  forceNew?: boolean;
+  multiplex?: boolean;
+  path?: string;
+  transports?: string[];
+  reconnection?: boolean;
+  reconnectionAttempts?: number;
+  reconnectionDelay?: number;
+  reconnectionDelayMax?: number;
+  randomizationFactor?: number;
+  timeout?: number;
+  autoConnect?: boolean;
+
+  // Additional socket.io options from ManagerOptions and SocketOptions
+  pingTimeout?: number;
+  pingInterval?: number;
+  upgradeTimeout?: number;
+  maxHttpBufferSize?: number;
+  parser?: any;
+}
+
+// Extend the socket.io-client types to include once method
+interface ExtendedSocket extends SocketClient<ServerToClientEvents, ClientToServerEvents> {
+  once<Event extends keyof ServerToClientEvents>(
+    event: Event, 
+    listener: ServerToClientEvents[Event]
+  ): this;
+}
+
+// Add type declarations for environment variables
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      NEXT_PUBLIC_WEBSOCKET_URL?: string;
+      NEXT_PUBLIC_BACKEND_URL?: string;
+    }
+  }
 }
 
 export class BetService {
-  private socket: Socket | null = null;
-  private static SOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://2d19-41-212-94-41.ngrok-free.app';
+  private socket: ExtendedSocket;
+  private socketInstance: any;
+
+  private static SOCKET_URL: string = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
 
   constructor() {
-    console.log('🚀 BettingService Constructor Called');
-    this.initializeSocket();
+    console.log('🚀 Initializing BetService', {
+      socketUrl: BetService.SOCKET_URL,
+      timestamp: new Date().toISOString()
+    });
+
+    // Enhanced token retrieval and validation
+    const token: string | null = getToken();
+    
+    console.group('🔐 Socket Authentication Setup');
+    console.log('Token Details:', {
+      tokenPresent: !!token,
+      tokenLength: token ? token.length : 'N/A',
+      tokenFirstChars: token ? token.substring(0, 10) : 'N/A',
+      tokenLastChars: token ? token.substring(token.length - 10) : 'N/A'
+    });
+
+    // Ensure token is properly formatted for JWT verification
+    const cleanToken: string = token 
+      ? (token.startsWith('Bearer ') 
+        ? token.split(' ')[1] 
+        : token)
+      : '';
+
+    console.log('Clean Token Details:', {
+      cleanTokenLength: cleanToken.length,
+      firstChars: cleanToken ? cleanToken.substring(0, 10) : 'N/A'
+    });
+    console.groupEnd();
+
+    if (!cleanToken) {
+      console.warn('🚨 No valid authentication token found');
+    }
+
+    // Use SocketOptions instead of SocketOptionsWithExtraHeaders
+    const socketOptions: SocketOptions = {
+      // Authentication methods
+      auth: {
+        token: cleanToken,
+        authorization: `Bearer ${cleanToken}`
+      },
+      
+      // Extra headers for authorization
+      extraHeaders: {
+        Authorization: `Bearer ${cleanToken}`
+      },
+      
+      // Query parameters
+      query: {
+        token: cleanToken
+      },
+      
+      // Reconnection settings
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      randomizationFactor: 0.5,
+      
+      // Transport options
+      transports: ['websocket', 'polling'],
+      timeout: 20000,
+      
+      // Additional socket.io options
+      forceNew: false,
+      multiplex: true,
+      path: '/socket.io',
+      autoConnect: true
+    };
+
+    // Initialize socket with proper types
+    this.socketInstance = io(BetService.SOCKET_URL, socketOptions);
+    this.socket = this.socketInstance as ExtendedSocket;
+
+    // Set up default socket event handlers
+    this.socketInstance.on('connect', () => {
+      console.log('🌐 Socket Connected', {
+        socketId: this.socketInstance.id,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    this.socketInstance.on('connect_error', (err: Error) => {
+      const socketError: SocketError = {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString()
+      };
+      console.group('❌ Socket Connection Error');
+      console.error('Detailed Error:', {
+        name: socketError.name,
+        message: socketError.message,
+        stack: socketError.stack,
+        socketUrl: BetService.SOCKET_URL,
+        timestamp: new Date().toISOString()
+      });
+      console.groupEnd();
+      throw new SocketConnectionError('Socket connection error', socketError);
+    });
+
+    this.setupSocketListeners();
   }
 
-  // New method to initialize socket from external source
-  public initializeSocket(externalSocket?: Socket): void {
-    if (this.socket) {
-      console.warn('🚨 Socket already initialized. Skipping initialization.');
+  private reconnectSocket() {
+    const token = getToken();
+    if (!token) {
+      console.warn('🚨 No valid authentication token found for reconnection');
       return;
     }
 
-    console.log('🔌 Initializing Betting Socket', {
-      socketUrl: BetService.SOCKET_URL,
-      externalSocket: !!externalSocket
-    });
+    // Clean the token
+    const cleanToken = token.startsWith('Bearer ') ? token.split(' ')[1] : token;
 
-    if (externalSocket) {
-      this.socket = externalSocket;
-    } else {
-      try {
-        const accessToken = AuthService.getToken();
-        
-        if (!accessToken) {
-          console.warn('🚨 No access token available. Socket connection cannot be established.');
-          return;
-        }
+    // Update socket options
+    const socketOptions: SocketOptions = {
+      auth: {
+        token: cleanToken,
+        authorization: `Bearer ${cleanToken}`
+      },
+      extraHeaders: {
+        Authorization: `Bearer ${cleanToken}`
+      },
+      query: {
+        token: cleanToken
+      },
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      randomizationFactor: 0.5,
+      transports: ['websocket', 'polling'],
+      timeout: 20000,
+      forceNew: true, // Force new connection
+      multiplex: true,
+      path: '/socket.io',
+      autoConnect: true
+    };
 
-        this.socket = io(BetService.SOCKET_URL, {
-          auth: { token: accessToken },
-          extraHeaders: {
-            'Authorization': `Bearer ${accessToken}`
-          },
-          reconnection: true,
-          reconnectionAttempts: 10,
-          reconnectionDelay: 1000,
-          randomizationFactor: 0.5
-        });
-
-        console.log('✅ Socket initialized successfully.');
-      } catch (error: unknown) {
-        if (error instanceof Error) {
-          console.error('🚨 Comprehensive Socket Initialization Error:', {
-            errorType: error.name,
-            errorMessage: error.message,
-            errorStack: error.stack,
-            timestamp: new Date().toISOString()
-          });
-        }
-        throw error;
-      }
+    // Disconnect existing socket if any
+    if (this.socket) {
+      this.socket.disconnect();
     }
+
+    // Create new socket connection
+    this.socketInstance = io(BetService.SOCKET_URL, socketOptions);
+    this.socket = this.socketInstance as ExtendedSocket;
+
+    // Set up event handlers
     this.setupSocketListeners();
   }
 
   private setupSocketListeners(): void {
-    if (!this.socket) return;
-
-    this.socket.on('connect', () => {
-      console.log('✅ Socket connected successfully');
+    // Game-specific event handlers
+    this.socketInstance.on('betPlaced', (response: BetPlacementResponse) => {
+      console.log('Bet placed event received:', response);
     });
 
-    this.socket.on('disconnect', (reason: string) => {
-      console.warn('🔌 Socket disconnected:', reason);
+    this.socketInstance.on('cashout', (response: BetResponse) => {
+      console.log('Cashout event received:', response);
     });
 
-    this.socket.on('error', (error: Error) => {
-      console.error('🚨 Socket error:', error);
+    this.socketInstance.on('error', (error: any) => {
+      console.error('Socket error event:', error);
+    });
+
+    this.socketInstance.on('disconnect', (reason: string) => {
+      console.log('Socket disconnected:', reason);
+      if (reason === 'io server disconnect') {
+        // The disconnection was initiated by the server, you need to reconnect manually
+        this.socket.connect();
+      }
     });
   }
 
-  async placeBet(betDetails: CreateBetDetails): Promise<BetResponse> {
-    try {
-      // Validate bet amount
-      if (!betDetails.amount || betDetails.amount <= 0) {
-        throw new ValidationError('INVALID_BET_AMOUNT', { message: 'Bet amount must be greater than 0' });
-      }
+  public async placeBet(betDetails: BetDetails): Promise<BetPlacementResponse> {
+    console.group('🎲 Bet Placement Initiation');
+    console.log('Initial Bet Details:', betDetails);
 
-      // Validate auto cashout settings
-      if (betDetails.autoCashoutEnabled && (!betDetails.autoCashoutMultiplier || betDetails.autoCashoutMultiplier <= 1.0)) {
-        throw new ValidationError('INVALID_AUTO_CASHOUT_SETTINGS', { message: 'Auto cashout multiplier must be greater than 1.0' });
-      }
+    // Check authentication first
+    const isAuthenticated = AuthService.isAuthenticated();
+    console.log('Authentication Status:', {
+      isAuthenticated,
+      method: 'AuthService.isAuthenticated()'
+    });
 
-      // Ensure all values are in the correct format
-      const normalizedBet: CreateBetDetails = {
-        amount: Number(betDetails.amount),
-        autoCashoutEnabled: Boolean(betDetails.autoCashoutEnabled),
-        autoCashoutMultiplier: betDetails.autoCashoutEnabled ? Number(betDetails.autoCashoutMultiplier) : undefined
-      };
+    if (!isAuthenticated) {
+      console.error('🚨 Authentication Failed');
+      throw new BetServiceError('Authentication required');
+    }
 
-      // Emit the bet placement event
-      return new Promise((resolve: (response: BetResponse) => void, reject: (error: Error) => void) => {
-        if (!this.socket) {
-          reject(new Error('Socket not initialized'));
-          return;
-        }
+    // Get fresh token
+    const token = getToken();
+    console.log('Token Retrieval:', {
+      tokenPresent: !!token,
+      tokenLength: token ? token.length : 'N/A'
+    });
 
-        this.socket.emit('placeBet', normalizedBet, (response: BetServiceResponse<BetResponse>) => {
-          if (response.error) {
-            reject(new Error(response.error));
-          } else {
-            resolve(response.data as BetResponse);
-          }
+    if (!token) {
+      console.error('🚨 No Valid Token Found');
+      throw new BetServiceError('No valid token found');
+    }
+
+    // Log authentication details
+    console.log('Token Details:', {
+      tokenPresent: !!token,
+      tokenLength: token.length,
+      tokenFirstChars: token.substring(0, 10),
+      tokenLastChars: token.substring(token.length - 10),
+      isBearer: token.startsWith('Bearer ')
+    });
+
+    // Clean the token
+    const cleanToken = token.startsWith('Bearer ') ? token.split(' ')[1] : token;
+
+    console.log('Clean Token Details:', {
+      cleanTokenLength: cleanToken.length,
+      firstChars: cleanToken.substring(0, 10)
+    });
+
+    // Ensure socket is connected with latest token
+    console.log('Socket Connection Status:', {
+      connected: this.socket?.connected,
+      socketId: this.socket?.id
+    });
+
+    if (!this.socket?.connected) {
+      console.log('🔄 Attempting Socket Reconnection');
+      this.reconnectSocket();
+      
+      // Wait for connection
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.error('🕒 Socket Connection Timeout');
+          reject(new Error('Socket connection timeout'));
+        }, 5000);
+
+        this.socket.once('connect', () => {
+          console.log('🌐 Socket Reconnected Successfully');
+          clearTimeout(timeout);
+          resolve();
+        });
+
+        this.socket.once('connect_error', (error) => {
+          console.error('❌ Socket Connection Error:', error);
+          clearTimeout(timeout);
+          reject(error);
         });
       });
-    } catch (error) {
-      return this.handleError(error as BetServiceError);
     }
+
+    // Place bet with fresh token
+    return new Promise((resolve, reject) => {
+      try {
+        // Log bet payload details
+        console.log('📤 Bet Payload:', {
+          amount: betDetails.amount,
+          autoCashoutMultiplier: betDetails.autoCashoutMultiplier,
+          tokenFirstChars: cleanToken.substring(0, 10)
+        });
+
+        // Emit bet with token
+        this.socket.emit('placeBet', {
+          token: cleanToken,
+          amount: betDetails.amount,
+          autoCashoutMultiplier: betDetails.autoCashoutMultiplier
+        }, (response: BetPlacementResponse) => {
+          console.log('📥 Bet Placement Response:', response);
+          console.groupEnd();
+
+          if (response.success) {
+            resolve(response);
+          } else {
+            reject(new BetServiceError(response.message || 'Failed to place bet', {
+              amount: betDetails.amount,
+              autoCashoutMultiplier: betDetails.autoCashoutMultiplier
+            }));
+          }
+        });
+      } catch (error) {
+        console.error('❌ Bet Placement Error:', error);
+        console.groupEnd();
+        reject(new BetServiceError('Error placing bet', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          amount: betDetails.amount,
+          autoCashoutMultiplier: betDetails.autoCashoutMultiplier
+        }));
+      }
+    });
   }
 
-  private handleError(error: BetServiceError): BetResponse {
-    return {
-      success: false,
-      error: error.message || 'An unexpected error occurred',
-      data: undefined
-    };
-  }
+  async cashout(betId: number, currentMultiplier: number): Promise<BetResponse> {
+    return new Promise((resolve, reject) => {
+      // Validate inputs
+      if (!betId) {
+        reject(new BetServiceError('Invalid bet ID', {
+          betId,
+          currentMultiplier
+        }));
+        return;
+      }
 
-  private handleAxiosError(error: AxiosError): BetResponse {
-    return {
-      success: false,
-      error: error.message || 'An unexpected error occurred',
-      data: undefined
-    };
+      if (currentMultiplier <= 0) {
+        reject(new BetServiceError('Invalid multiplier', {
+          betId,
+          currentMultiplier
+        }));
+        return;
+      }
+
+      // Get and validate token
+      const token: string | null = getToken();
+      const cleanToken: string = token?.startsWith('Bearer ') 
+        ? token.split(' ')[1] 
+        : token || '';
+
+      if (!cleanToken) {
+        reject(new BetServiceError('Authentication token not found', {
+          betId,
+          currentMultiplier
+        }));
+        return;
+      }
+
+      // Emit cashout event
+      this.socketInstance.emit('cashout', {
+        token: cleanToken,
+        betId,
+        currentMultiplier
+      }, (response: BetResponse) => {
+        if (response.success) {
+          resolve(response);
+        } else {
+          reject(new BetServiceError(response.message || 'Cashout failed', {
+            betId,
+            currentMultiplier
+          }));
+        }
+      });
+    });
   }
 }
 
-// Export as a named constant instead of anonymous default
-const betService = new BetService();
-export default betService;
+// Create a singleton instance
+const betServiceInstance = new BetService();
+
+// Export the instance as default
+export default betServiceInstance;

@@ -1,114 +1,74 @@
-import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
-import { walletSocket } from '../services/walletSocket';
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import { api, isAuthenticated } from '../utils/authUtils';
 import { AuthService } from '@/app/lib/auth';
 
 interface WalletContextType {
   balance: number;
-  loading: boolean;
   error: string | null;
-  refreshBalance: () => Promise<void>;
+  loading: boolean;
+  refreshWallet: () => Promise<void>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
-interface WalletProviderProps {
-  children: ReactNode;
-}
-
-export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
+export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [balance, setBalance] = useState<number>(0);
-  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const refreshBalance = useCallback(async () => {
+  const refreshWallet = async () => {
     try {
-      const walletBalance = await AuthService.getWalletBalance();
-      if (walletBalance) {
-        setBalance(walletBalance.balance);
-        setError(null);
-      }
-    } catch (error) {
-      console.error('Failed to fetch wallet balance:', error);
-      setError('Failed to fetch wallet balance');
-    }
-  }, []);
-
-  const handleWalletUpdate = useCallback((data: { balance: number }) => {
-    console.log('Handling wallet update:', data);
-    setBalance(data.balance);
-    setError(null);
-  }, []);
-
-  useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-
-    const initializeWallet = async () => {
-      try {
-        setLoading(true);
-        
-        // Check if user is authenticated
-        if (!AuthService.isAuthenticated()) {
-          setError('Not authenticated');
-          return;
-        }
-
-        // Get the token
-        const token = AuthService.getToken();
-        if (!token) {
-          setError('Authentication token not found');
-          return;
-        }
-
-        // Initialize socket connection
-        walletSocket.connect(token);
-
-        // Set up wallet update listener
-        unsubscribe = walletSocket.addListener(handleWalletUpdate);
-
-        // Fetch initial balance
-        await refreshBalance();
-      } catch (error) {
-        console.error('Failed to initialize wallet:', error);
-        setError('Failed to initialize wallet');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initializeWallet();
-
-    // Cleanup function
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-      walletSocket.disconnect();
-    };
-  }, [handleWalletUpdate, refreshBalance]);
-
-  // Re-initialize wallet when auth state changes
-  useEffect(() => {
-    const checkAuthInterval = setInterval(() => {
-      if (!AuthService.isAuthenticated() && balance !== 0) {
-        setBalance(0);
+      setLoading(true);
+      // Use new authentication check
+      if (!isAuthenticated()) {
         setError('Not authenticated');
-        walletSocket.disconnect();
+        setBalance(0);
+        setLoading(false);
+        return;
       }
-    }, 30000); // Check every 30 seconds
 
-    return () => clearInterval(checkAuthInterval);
-  }, [balance]);
+      const response = await api.get('/api/wallet/balance');
+      // Ensure balance is a number, default to 0 if not
+      const fetchedBalance = Number(response.data?.balance || 0);
+      setBalance(isNaN(fetchedBalance) ? 0 : fetchedBalance);
+      setError(null);
+    } catch (err) {
+      console.error('Wallet refresh error:', err);
+      setError('Failed to refresh wallet');
+      setBalance(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Re-initialize wallet when auth state changes
+    if (isAuthenticated()) {
+      refreshWallet();
+    } else {
+      setBalance(0);
+      setError('Not authenticated');
+      setLoading(false);
+    }
+  }, []);  // Depends on authentication state
+
+  const value = {
+    balance,
+    error,
+    loading,
+    refreshWallet
+  };
 
   return (
-    <WalletContext.Provider value={{ balance, loading, error, refreshBalance }}>
+    <WalletContext.Provider value={value}>
       {children}
     </WalletContext.Provider>
   );
 };
 
-export const useWallet = (): WalletContextType => {
+export const useWallet = () => {
   const context = useContext(WalletContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error('useWallet must be used within a WalletProvider');
   }
   return context;
