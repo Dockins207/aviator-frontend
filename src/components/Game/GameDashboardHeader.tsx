@@ -17,12 +17,16 @@ import { MessageCircle } from 'lucide-react';
 import GroupChat from '@/components/GroupChat/GroupChat';
 
 interface GameDashboardHeaderProps {
-  balance: number | undefined;
 }
 
-const GameDashboardHeader = ({ balance }: GameDashboardHeaderProps) => {
+const GameDashboardHeader = () => {
   const router = useRouter();
-  const { loading, error } = useWallet();
+  const { 
+    balance = 0, 
+    loading, 
+    error, 
+    socketConnected 
+  } = useWallet();
   const { toggleChat, isChatOpen } = useChat();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -72,9 +76,11 @@ const GameDashboardHeader = ({ balance }: GameDashboardHeaderProps) => {
     setIsMenuOpen(false);
   };
 
-  const formatBalance = (amount: number | undefined) => {
-    if (!amount) return '0.00';
-    return amount.toLocaleString('en-KE', { minimumFractionDigits: 2 });
+  const formatBalance = (amount: number) => {
+    return `KSH ${amount.toLocaleString('en-KE', { 
+      minimumFractionDigits: 2, 
+      maximumFractionDigits: 2 
+    })}`;
   };
 
   return (
@@ -93,7 +99,7 @@ const GameDashboardHeader = ({ balance }: GameDashboardHeaderProps) => {
             h-[26px]
           ">
             <span className="font-bold">
-              {loading ? 'Loading...' : `KSH ${formatBalance(balance)}`}
+              {loading ? 'Loading...' : formatBalance(balance)}
             </span>
           </div>
         </div>

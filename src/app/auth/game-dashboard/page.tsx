@@ -64,7 +64,7 @@ export function GameDashboardContent() {
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <GameDashboardHeader balance={balance} />
+      <GameDashboardHeader />
       <div className={`p-1 transition-all duration-300 ease-in-out ${isChatOpen ? 'mr-[280px]' : ''}`}> 
         <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-3 gap-1">
           <div className="order-3 md:order-1 md:col-span-1 space-y-1">

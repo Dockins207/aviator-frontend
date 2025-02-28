@@ -60,13 +60,19 @@ class SocketManager {
 
     this.socket.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
-      this.handleReconnection();
+      // Only attempt reconnection if it's not an auth error
+      if (!error.message?.includes('authentication')) {
+        this.handleReconnection();
+      } else {
+        console.log('Authentication failed, not attempting reconnection');
+        this.disconnect();
+      }
     });
 
     this.socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
-      if (reason === 'io server disconnect') {
-        // Server initiated disconnect, attempt reconnection
+      // Only reconnect for non-auth related disconnects
+      if (reason === 'io server disconnect' && !reason.includes('authentication')) {
         this.handleReconnection();
       }
     });
@@ -74,8 +80,8 @@ class SocketManager {
     this.socket.on('error', (error) => {
       console.error('Socket error:', error);
       if (error.message?.includes('authentication')) {
-        // Handle authentication errors
-        this.socket?.disconnect();
+        console.log('Authentication error, disconnecting');
+        this.disconnect();
       }
     });
   }

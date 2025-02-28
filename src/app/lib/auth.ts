@@ -329,45 +329,52 @@ export class AuthService {
     }
   }
 
-  // Get user profile
+  // Get user profile from token or API
   static async getProfile(): Promise<UserProfile | null> {
     try {
       const token = this.getToken();
+      
       if (!token) {
-        console.error('No authentication token found');
+        console.warn('🚨 No token found for profile retrieval');
         return null;
       }
 
-      const response = await axios.get(`${BASE_URL}/api/auth/profile`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      // Decode token to get initial profile information
+      const parts = token.split('.');
+      const base64Payload = parts[1];
+      const payload = JSON.parse(atob(base64Payload.replace(/-/g, '+').replace(/_/g, '/')));
 
-      // Handle nested response structure
-      if (response.data && response.data.status === 'success' && response.data.data) {
-        const { data } = response.data;
+      // Construct initial profile from token payload
+      const tokenProfile: UserProfile = {
+        user_id: payload.user_id,
+        username: payload.username,
+        phone_number: payload.phone_number,
+        role: payload.role
+      };
+
+      // Optional: Fetch additional profile details from API if needed
+      try {
+        const response = await axiosInstance.get('/api/user/profile', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        // Merge token profile with API response, prioritizing token data
         return {
-          user_id: data.user_id,
-          username: data.username,
-          phone_number: data.phone_number,
-          role: data.role
+          ...tokenProfile,
+          ...response.data?.profile
         };
+      } catch (apiError) {
+        console.warn('🚨 Failed to fetch additional profile details:', apiError);
+        // Return token-based profile if API call fails
+        return tokenProfile;
       }
-      
-      console.error('Invalid profile response structure');
-      return null;
     } catch (error) {
-      console.error('Profile Fetch Error:', {
+      console.error('🚨 Profile Retrieval Error:', {
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       });
-      
-      // If token is invalid or expired, remove it
-      if (error instanceof Error && error.message.includes('401')) {
-        this.removeToken();
-      }
-      
       return null;
     }
   }

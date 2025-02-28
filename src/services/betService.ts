@@ -1,6 +1,16 @@
-import { io, Socket as SocketClient } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
 import { AuthService } from '@/app/lib/auth';
 import { api, getToken } from '../utils/authUtils';
+
+// Add type declarations for environment variables
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      NEXT_PUBLIC_WEBSOCKET_URL?: string;
+      NEXT_PUBLIC_BACKEND_URL?: string;
+    }
+  }
+}
 
 // Define specific error types for socket and bet-related errors
 export interface BetDetails {
@@ -57,33 +67,43 @@ export class SocketConnectionError extends Error {
 }
 
 // Define the event map for our socket instance
-interface ServerToClientEvents {
+export interface ServerToClientEvents {
   connect: () => void;
   connect_error: (err: Error) => void;
   disconnect: (reason: string) => void;
   error: (err: Error) => void;
   betPlaced: (data: BetPlacementResponse) => void;
+  betError: (error: { message: string }) => void;
   cashout: (response: BetResponse) => void;
+  gameStateChange: (state: string) => void;
+  multiplierUpdate: (multiplier: number) => void;
+  activateCashout: (data: { token: string; betId: number }) => void;
 }
 
-interface ClientToServerEvents {
-  placeBet: (
-    data: { token: string; amount: number; autoCashoutMultiplier?: number },
-    callback: (response: BetPlacementResponse) => void
-  ) => void;
-  cashout: (
-    data: { token: string; betId: number; currentMultiplier: number },
-    callback: (response: BetResponse) => void
-  ) => void;
+export interface ClientToServerEvents {
+  placeBet: (data: { 
+    token: string; 
+    amount: number; 
+    autoCashoutMultiplier?: number 
+  }, callback: (response: BetPlacementResponse) => void) => void;
+  cashout: (data: { 
+    token: string; 
+    betId: number; 
+    currentMultiplier: number 
+  }, callback: (response: BetResponse) => void) => void;
+  cashoutWithToken: (data: {
+    cashoutToken: string;
+    betId: number;
+  }, callback: (response: BetResponse) => void) => void;
 }
 
 // Define socket data interface
-interface SocketData {
+export interface SocketData {
   token?: string;
 }
 
 // Define socket options interface
-interface SocketOptions {
+export interface SocketOptions {
   // Authentication and custom headers
   auth?: {
     token?: string;
@@ -114,27 +134,9 @@ interface SocketOptions {
   parser?: any;
 }
 
-// Extend the socket.io-client types to include once method
-interface ExtendedSocket extends SocketClient<ServerToClientEvents, ClientToServerEvents> {
-  once<Event extends keyof ServerToClientEvents>(
-    event: Event, 
-    listener: ServerToClientEvents[Event]
-  ): this;
-}
-
-// Add type declarations for environment variables
-declare global {
-  namespace NodeJS {
-    interface ProcessEnv {
-      NEXT_PUBLIC_WEBSOCKET_URL?: string;
-      NEXT_PUBLIC_BACKEND_URL?: string;
-    }
-  }
-}
-
 export class BetService {
-  private socket: ExtendedSocket;
-  private socketInstance: any;
+  private socket: Socket<ServerToClientEvents, ClientToServerEvents>;
+  private socketInstance: Socket<ServerToClientEvents, ClientToServerEvents>;
 
   private static SOCKET_URL: string = process.env.NEXT_PUBLIC_WEBSOCKET_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
 
@@ -210,7 +212,7 @@ export class BetService {
 
     // Initialize socket with proper types
     this.socketInstance = io(BetService.SOCKET_URL, socketOptions);
-    this.socket = this.socketInstance as ExtendedSocket;
+    this.socket = this.socketInstance as Socket<ServerToClientEvents, ClientToServerEvents>;
 
     // Set up default socket event handlers
     this.socketInstance.on('connect', () => {
@@ -284,7 +286,7 @@ export class BetService {
 
     // Create new socket connection
     this.socketInstance = io(BetService.SOCKET_URL, socketOptions);
-    this.socket = this.socketInstance as ExtendedSocket;
+    this.socket = this.socketInstance as Socket<ServerToClientEvents, ClientToServerEvents>;
 
     // Set up event handlers
     this.setupSocketListeners();
@@ -300,6 +302,11 @@ export class BetService {
       console.log('Cashout event received:', response);
     });
 
+    this.socketInstance.on('activateCashout', (data: { token: string; betId: number }) => {
+      console.log('Cashout activation received:', data);
+      // The event will be forwarded to any components listening for it
+    });
+
     this.socketInstance.on('error', (error: any) => {
       console.error('Socket error event:', error);
     });
@@ -311,6 +318,46 @@ export class BetService {
         this.socket.connect();
       }
     });
+  }
+
+  // Public method to add socket event listeners
+  public addSocketListener(event: keyof ServerToClientEvents, listener: ServerToClientEvents[typeof event]) {
+    this.socketInstance.on(event, listener);
+  }
+
+  // Public method to remove socket event listeners
+  public removeSocketListener(event: keyof ServerToClientEvents, listener: ServerToClientEvents[typeof event]) {
+    this.socketInstance.off(event, listener);
+  }
+
+  // Public method to get socket instance for more complex interactions
+  public getSocketInstance(): Socket<ServerToClientEvents, ClientToServerEvents> {
+    return this.socketInstance;
+  }
+
+  // Public method to add socket event listeners
+  public on(event: keyof ServerToClientEvents, listener: ServerToClientEvents[typeof event]) {
+    this.socketInstance.on(event, listener);
+    return this;
+  }
+
+  // Public method to remove socket event listeners
+  public off(event: keyof ServerToClientEvents, listener: ServerToClientEvents[typeof event]) {
+    this.socketInstance.off(event, listener);
+    return this;
+  }
+
+  // Type-safe emit method
+  public emit<T extends keyof ClientToServerEvents>(
+    event: T,
+    ...args: Parameters<ClientToServerEvents[T]>
+  ): void {
+    this.socketInstance.emit(event, ...args);
+  }
+
+  // Public method to get socket connection status
+  public isConnected(): boolean {
+    return this.socketInstance.connected;
   }
 
   public async placeBet(betDetails: BetDetails): Promise<BetPlacementResponse> {
@@ -400,7 +447,7 @@ export class BetService {
         });
 
         // Emit bet with token
-        this.socket.emit('placeBet', {
+        this.emit('placeBet', {
           token: cleanToken,
           amount: betDetails.amount,
           autoCashoutMultiplier: betDetails.autoCashoutMultiplier
@@ -463,7 +510,7 @@ export class BetService {
       }
 
       // Emit cashout event
-      this.socketInstance.emit('cashout', {
+      this.emit('cashout', {
         token: cleanToken,
         betId,
         currentMultiplier
@@ -474,6 +521,39 @@ export class BetService {
           reject(new BetServiceError(response.message || 'Cashout failed', {
             betId,
             currentMultiplier
+          }));
+        }
+      });
+    });
+  }
+
+  async cashoutWithToken(cashoutToken: string, betId: number): Promise<BetResponse> {
+    return new Promise((resolve, reject) => {
+      // Validate inputs
+      if (!cashoutToken) {
+        reject(new BetServiceError('Invalid cashout token', {
+          betId
+        }));
+        return;
+      }
+
+      if (!betId) {
+        reject(new BetServiceError('Invalid bet ID', {
+          betId
+        }));
+        return;
+      }
+
+      // Emit cashoutWithToken event
+      this.emit('cashoutWithToken', {
+        cashoutToken,
+        betId
+      }, (response: BetResponse) => {
+        if (response.success) {
+          resolve(response);
+        } else {
+          reject(new BetServiceError(response.message || 'Cashout failed', {
+            betId
           }));
         }
       });

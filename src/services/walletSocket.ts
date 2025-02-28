@@ -1,10 +1,17 @@
 import { io, Socket } from 'socket.io-client';
 
 interface WalletUpdate {
+  userId: string;
   balance: number;
-  transactionType?: string;
-  amount?: number;
-  gameId?: string;
+  currency: string;
+  createdAt: string;
+  recentTransactions?: Array<{
+    transactionId: string;
+    amount: number;
+    description: string;
+    transactionType: string;
+    createdAt: string;
+  }>;
 }
 
 // Define interfaces for better type safety
@@ -15,13 +22,16 @@ interface WalletError {
 }
 
 interface WalletEventData {
-  balance?: number;
-  transaction?: {
+  balance: number;
+  userId: string;
+  currency: string;
+  transactions?: Array<{
+    id: string;
     amount: number;
     type: string;
-    timestamp: Date;
-  };
-  // Add other wallet event properties as needed
+    description: string;
+    timestamp: string;
+  }>;
 }
 
 interface WalletEventCallback {
