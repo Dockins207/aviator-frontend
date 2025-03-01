@@ -1,17 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import betService from '@/services/betService';
 import { toast } from 'react-hot-toast';
-import { AuthService } from '@/app/lib/auth';
-
-// Types for bet response
-interface BetResponse {
-  success: boolean;
-  message?: string;
-  data?: {
-    betId?: number;
-    [key: string]: any;
-  };
-}
+import { 
+  BetDetails, 
+  BetPlacementResponse, 
+  BetResponse 
+} from '@/services/betService';
 
 interface BettingControlsProps {
   balance?: number | null;
@@ -22,7 +16,16 @@ const useNumericInput = (initialValue: string = '') => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
-    setValue(inputValue);
+    
+    // Regex to allow only numbers and up to 2 decimal places
+    const numericRegex = /^\d*\.?\d{0,2}$/;
+    
+    if (inputValue === '' || numericRegex.test(inputValue)) {
+      // Prevent leading zeros
+      const sanitizedValue = inputValue.replace(/^0+/, '') || '0';
+      
+      setValue(sanitizedValue);
+    }
   };
 
   return { value, setValue, handleChange };
@@ -44,14 +47,6 @@ const NumericInput: React.FC<{
   min = 0, 
   max = Infinity,
   placeholder
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  className?: string;
-  min?: number;
-  max?: number;
-  placeholder?: string;
 }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
@@ -112,12 +107,12 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
     onPlaceBet
   }) => {
     // Independent state for each section
-    const { value, setValue } = useNumericInput();
+    const { value, setValue, handleChange } = useNumericInput('0');
     const [isCashout, setIsCashout] = useState(false);
     const [betAmount, setBetAmount] = useState(0);
     const [autoMode, setAutoMode] = useState(false);
     const [autoMultiplier, setAutoMultiplier] = useState('');
-    const [currentBetId, setCurrentBetId] = useState<number | null>(null);
+    const [currentBetId, setCurrentBetId] = useState<string | null>(null);
     const [currentMultiplier, setCurrentMultiplier] = useState<number>(1);
     const [hasActiveBet, setHasActiveBet] = useState(false);
     const [autoCashoutSet, setAutoCashoutSet] = useState(false);
@@ -136,7 +131,6 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
       setIsProcessingBet(false);
       setGameState('waiting');
       setCashoutToken(null);
-      // Don't reset autoMode and autoMultiplier as they are user preferences
     }, [setValue]);
 
     // Socket event handlers specific to this section
@@ -148,17 +142,13 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
         }
       };
 
-      const handleBetSuccess = (data: any) => {
-        // Only handle events for this section's bet
-        if (data.betDetails?.section === section) {
-          if (data.betDetails?.bet_id) {
-            setCurrentBetId(data.betDetails.bet_id);
-            setHasActiveBet(true);
-            setIsProcessingBet(true);
-            
-            if (autoMode && autoMultiplier) {
-              setAutoCashoutSet(true);
-            }
+      const handleBetSuccess = (response: BetPlacementResponse) => {
+        if (response.success && response.data?.betId) {
+          setCurrentBetId(response.data.betId);
+          setHasActiveBet(true);
+          setIsProcessingBet(true);
+          if (autoMode && autoMultiplier) {
+            setAutoCashoutSet(true);
           }
         }
       };
@@ -178,12 +168,12 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
         }
       };
 
-      const handleActivateCashout = (data: { token: string; betId: number }) => {
-        // Only handle events for this section's bet
+      const handleActivateCashout = (data: { token: string; betId: string }) => {
+        console.log('Received activateCashout event:', data);
         if (data.betId === currentBetId) {
+          console.log('Setting cashout token:', data.token);
           setCashoutToken(data.token);
           setIsCashout(true);
-          toast.success('Cashout is now available!');
         }
       };
 
@@ -202,7 +192,7 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
         socketInstance.off('multiplierUpdate', handleMultiplierUpdate);
         socketInstance.off('activateCashout', handleActivateCashout);
       };
-    }, [section, autoMode, autoMultiplier, currentBetId, autoCashoutSet, isProcessingBet, hasActiveBet, localResetBettingState]);
+    }, [section, autoMode, autoMultiplier, currentBetId, autoCashoutSet, isProcessingBet, hasActiveBet, isCashout, cashoutToken, localResetBettingState]);
 
     const handleAutoMultiplierChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const inputValue = e.target.value;
@@ -232,112 +222,19 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
       }
     };
 
-    const handleBetOrCashout = async () => {
-      const currentBetAmount = Number(value);
-
-      if (currentBetAmount <= 0) {
-        toast.error('Please enter a valid bet amount');
-        return;
-      }
-
-      try {
-        // Always allow bet placement
-        onPlaceBet(currentBetAmount, section, autoMode, autoMultiplier);
-        setBetAmount(currentBetAmount);
-        setValue('');
-      } catch (error: any) {
-        toast.error(error.message || 'Failed to place bet');
-      }
-    };
-
-    const handleAutoCashout = async (currentMultiplier: number) => {
-      if (!currentBetId) return;
-
-      try {
-        const response = await betService.cashout(currentBetId, currentMultiplier);
-        
-        if (response.success) {
-          toast.success(`Auto-cashout successful! Won ${Math.floor(betAmount * currentMultiplier).toLocaleString()} KSH`);
-          
-          // Update user's balance if provided in response
-          if (response.data?.newWalletBalance) {
-            // Update balance through your state management system
-          }
-        } else {
-          toast.error(response.message || 'Auto-cashout failed');
-        }
-      } catch (error) {
-        console.error('Auto-cashout error:', error);
-        toast.error(error instanceof Error ? error.message : 'Failed to auto-cashout');
-      } finally {
-        setHasActiveBet(false);
-        setAutoCashoutSet(false);
-        localResetBettingState();
-      }
-    };
-
-    const adjustBetAmount = (mode: 'half' | 'double') => {
-      const currentValue = Number(value);
-      
-      if (mode === 'half') {
-        // Halve the current value, round to 2 decimal places
-        const halfValue = Math.max(0, currentValue / 2);
-        setValue(halfValue.toString());
-      } else {
-        // Double the current value
-        const doubledValue = currentValue * 2;
-        setValue(doubledValue.toString());
-      }
-    };
-
-    const getButtonText = () => {
-      if (isCashout) {
-        return 'CASHOUT';
-      }
-      
-      if (autoMode) {
-        return 'BET AUTOCASHOUT';
-      }
-      
-      return Number(value) > 0 ? `BET KSH${Number(value).toLocaleString()}` : 'BET KSH';
-    };
-
-    const isButtonDisabled = () => {
-      // Always return false to ensure the button is always clickable
-      return false;
-    };
-
-    const getButtonTextLocal = () => {
-      if (isCashout) {
-        return 'CASHOUT';
-      }
-      
-      if (autoMode) {
-        return Number(value) > 0 ? `BET AUTOCASHOUT` : 'BET AUTOCASHOUT';
-      }
-      
-      return Number(value) > 0 ? `BET KSH${Number(value).toLocaleString()}` : 'BET KSH';
-    };
-
     const handlePlaceBet = async () => {
       const currentBetAmount = Number(value);
       
       // If in cashout state, handle cashout
       if (isCashout) {
         try {
-          if (!currentBetId) {
-            toast.error('Invalid bet ID');
-            return;
-          }
+          const cashoutOptions = {
+            token: cashoutToken || '',
+            betId: currentBetId || '',
+            currentMultiplier: currentMultiplier
+          };
           
-          let response;
-          
-          // Use cashout token if available, otherwise use regular cashout
-          if (cashoutToken) {
-            response = await betService.cashoutWithToken(cashoutToken, currentBetId);
-          } else {
-            response = await betService.cashout(currentBetId, currentMultiplier);
-          }
+          const response = await betService.cashoutBet(cashoutOptions);
           
           if (response.success) {
             toast.success('Cashout successful!');
@@ -346,6 +243,7 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
             toast.error(response.message || 'Failed to cashout');
           }
         } catch (error: any) {
+          console.error('Cashout error:', error);
           toast.error(error.message || 'Failed to cashout');
         }
         return;
@@ -359,27 +257,23 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
 
       try {
         // Place bet with auto mode settings if needed
-        const response = await betService.placeBet({
+        const betOptions: BetDetails = {
           amount: currentBetAmount,
           autoCashoutMultiplier: autoMode ? parseFloat(autoMultiplier) : undefined
-        });
+        };
+
+        const response = await betService.placeBet(betOptions);
         
         if (response.success) {
           setBetAmount(currentBetAmount);
           setHasActiveBet(true);
-          
-          // Only set to cashout mode if not in auto mode
-          if (!autoMode) {
-            setIsCashout(true);
-          }
-          
           setCurrentBetId(response.data?.betId || null);
-          toast.success('Bet placed successfully!');
         } else {
           toast.error(response.message || 'Failed to place bet');
           localResetBettingState();
         }
       } catch (error: any) {
+        console.error('Bet placement error:', error);
         toast.error(error.message || 'Failed to place bet');
         localResetBettingState();
       }
@@ -391,7 +285,11 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
         
         <div className="grid grid-cols-[auto_1fr_auto] items-center space-x-2 mb-1">
           <button
-            onClick={() => adjustBetAmount('half')}
+            onClick={() => {
+              const currentValue = Number(value);
+              const halfValue = Math.max(0, currentValue / 2);
+              setValue(halfValue.toString());
+            }}
             className="bg-purple-800 text-white px-3 py-2 rounded text-[10px] flex-shrink-0"
           >
             x½
@@ -408,7 +306,11 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
           />
           
           <button
-            onClick={() => adjustBetAmount('double')}
+            onClick={() => {
+              const currentValue = Number(value);
+              const doubledValue = currentValue * 2;
+              setValue(doubledValue.toString());
+            }}
             className="bg-purple-800 text-white px-3 py-2 rounded text-[10px] flex-shrink-0"
           >
             x2
@@ -484,7 +386,12 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
                 : 'bg-green-500 hover:bg-green-600' // Default bet state (green)
           } text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center`}
         >
-          {getButtonTextLocal()}
+          {isCashout 
+            ? 'CASHOUT' 
+            : autoMode 
+              ? 'BET AUTOCASHOUT' 
+              : `BET KSH${Number(value) > 0 ? Number(value).toLocaleString() : ''}`
+          }
         </button>
       </div>
     );
@@ -496,7 +403,31 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
     autoMode: boolean = false, 
     autoMultiplier: string = ''
   ) => {
-    // handlePlaceBet(numericValue, autoMode, autoMultiplier);
+    // Placeholder for future implementation if needed
+  };
+
+  const handleTabChange = (tab: 'manual' | 'auto') => {
+    setActiveTab(tab);
+    localStorage.setItem('aviatorBetMode', tab);
+  };
+
+  const ManualBetTab: React.FC = () => {
+    return (
+      <div className="grid grid-cols-2 gap-1 mt-1 sm:grid-cols-2 max-w-full">
+        <BetSection 
+          section="first"
+          balance={safeBalance}
+          isPlaying={false}
+          onPlaceBet={placeBet}
+        />
+        <BetSection 
+          section="second"
+          balance={safeBalance}
+          isPlaying={false}
+          onPlaceBet={placeBet}
+        />
+      </div>
+    );
   };
 
   const AutoBetTab: React.FC = () => {
@@ -850,33 +781,8 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
     );
   };
 
-  const ManualBetTab: React.FC = () => {
-    return (
-      <div className="grid grid-cols-2 gap-1 mt-1 sm:grid-cols-2 max-w-full">
-        <BetSection 
-          section="first"
-          balance={safeBalance}
-          isPlaying={false}
-          onPlaceBet={placeBet}
-        />
-        <BetSection 
-          section="second"
-          balance={safeBalance}
-          isPlaying={false}
-          onPlaceBet={placeBet}
-        />
-      </div>
-    );
-  };
-
-  const handleTabChange = (tab: 'manual' | 'auto') => {
-    setActiveTab(tab);
-    localStorage.setItem('aviatorBetMode', tab);
-  };
-
   return (
     <div>
-      
       <div>
         <div className="w-full">
           <div className="flex mb-1 overflow-hidden rounded-lg">

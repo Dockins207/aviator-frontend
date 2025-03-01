@@ -10,6 +10,7 @@ import {
   AuthResponse
 } from '../utils/authUtils';
 import { PhoneValidator } from '../utils/phoneValidator';
+import { BetService } from './betService';
 
 interface LoginCredentials {
   phoneNumber: string;
@@ -96,7 +97,7 @@ class AuthService {
 
       // Normalize phone number
       const normalizedPhone = PhoneValidator.normalize(credentials.phoneNumber);
-      
+
       const response = await api.post<AuthResponse>('/api/auth/login', {
         phone_number: normalizedPhone,
         password: credentials.password
@@ -104,6 +105,16 @@ class AuthService {
 
       if (response.data.token) {
         setToken(response.data.token);
+        
+        // Initialize socket connection after successful login
+        try {
+          // Use static getInstance method
+          const betServiceInstance = BetService.getInstance();
+          betServiceInstance.connectSocketAfterLogin();
+        } catch (socketError) {
+          console.warn('Failed to initialize socket after login:', socketError);
+          // Non-blocking error - user can still use the app
+        }
       }
 
       return response.data;
@@ -123,7 +134,7 @@ class AuthService {
 
       // Normalize phone number
       const normalizedPhone = PhoneValidator.normalize(credentials.phoneNumber);
-      
+
       const response = await api.post<AuthResponse>('/api/auth/register', {
         username: credentials.username,
         phone_number: normalizedPhone,
@@ -132,6 +143,16 @@ class AuthService {
 
       if (response.data.token) {
         setToken(response.data.token);
+        
+        // Initialize socket connection after successful registration
+        try {
+          // Use static getInstance method
+          const betServiceInstance = BetService.getInstance();
+          betServiceInstance.connectSocketAfterLogin();
+        } catch (socketError) {
+          console.warn('Failed to initialize socket after registration:', socketError);
+          // Non-blocking error - user can still use the app
+        }
       }
 
       return response.data;
@@ -146,6 +167,14 @@ class AuthService {
    */
   static logout(): void {
     clearToken();
+    
+    // Disconnect socket on logout
+    try {
+      const betService = BetService.getInstance();
+      betService.disconnectSocket();
+    } catch (socketError) {
+      console.warn('Failed to disconnect socket during logout:', socketError);
+    }
   }
 
   /**

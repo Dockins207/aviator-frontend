@@ -354,7 +354,7 @@ export class AuthService {
 
       // Optional: Fetch additional profile details from API if needed
       try {
-        const response = await axiosInstance.get('/api/user/profile', {
+        const response = await axiosInstance.get('/api/auth/profile', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
