@@ -7,7 +7,7 @@ import styles from './GameBoard.module.css';
 import CrashHistory from './CrashHistory';
 
 interface GameState {
-  status: 'idle' | 'betting' | 'flying' | 'crashed';
+  status: 'betting' | 'flying' | 'crashed';
   multiplier: number;
   players: { id: string; username: string; betAmount: number }[];
   totalPlayers: number;
@@ -20,7 +20,7 @@ interface GameState {
 const GameBoard: React.FC = () => {
   // 1. All useState hooks
   const [gameState, setGameState] = useState<GameState>({
-    status: 'idle',
+    status: 'betting',
     multiplier: 1,
     players: [],
     totalPlayers: 0,
@@ -318,10 +318,10 @@ const GameBoard: React.FC = () => {
       );
     }
 
-    // Default state
+    // Default state (betting without countdown)
     return (
       <div className="text-gray-500">
-        Waiting for game...
+        Place your bets...
       </div>
     );
   };

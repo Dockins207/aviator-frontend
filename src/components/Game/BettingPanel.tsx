@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import betService from '@/services/betService';
+import React, { useState, useEffect } from 'react';
+import betService, { BetRecord } from '@/services/betService';
 import { toast } from 'react-hot-toast';
 import { 
   BetDetails, 
   BetPlacementResponse, 
-  BetResponse 
 } from '@/services/betService';
+import { getToken } from '@/utils/authUtils';
 
 interface BettingControlsProps {
   balance?: number | null;
@@ -91,6 +91,57 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
   balance: initialBalance 
 }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'auto'>('manual');
+  const [currentBets, setCurrentBets] = useState<BetRecord[]>([]);
+
+  // Fetch current bets when component mounts - with safety mechanism
+  useEffect(() => {
+    const controller = new AbortController();
+    let isMounted = true;
+    
+    const fetchCurrentBets = async () => {
+      try {
+        // Use a flag to detect recursion
+        if ((window as any).fetchingBets) {
+          console.warn('Already fetching bets, aborting duplicate call');
+          return;
+        }
+        
+        (window as any).fetchingBets = true;
+        console.log('Fetching current bets...');
+        
+        // Add timeout to prevent hanging requests
+        const timeoutPromise = new Promise<[]>((_, reject) => {
+          setTimeout(() => reject(new Error('Fetch bets timed out')), 5000);
+        });
+        
+        // Race the actual request against the timeout
+        const bets = await Promise.race([
+          betService.getCurrentBets(),
+          timeoutPromise
+        ]);
+        
+        if (isMounted) {
+          console.log('Current bets loaded:', bets);
+          setCurrentBets(bets || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch current bets:', error);
+        if (isMounted) {
+          // Silently fail - don't show error toast to avoid UI disruption
+          setCurrentBets([]);
+        }
+      } finally {
+        (window as any).fetchingBets = false;
+      }
+    };
+
+    fetchCurrentBets();
+    
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, []); // Empty dependency array - only run once on mount
 
   // Robust type conversion and default value
   const safeBalance = Number(initialBalance || 0);
@@ -98,17 +149,14 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
   const BetSection: React.FC<{
     section: 'first' | 'second';
     balance: number;
-    isPlaying: boolean;
     onPlaceBet: (amount: number, section: 'first' | 'second', autoMode: boolean, autoMultiplier: string) => void;
   }> = ({
     section,
     balance,
-    isPlaying,
-    onPlaceBet
   }) => {
     // Independent state for each section
     const { value, setValue, handleChange } = useNumericInput('0');
-    const [isCashout, setIsCashout] = useState(false);
+    const [isCashoutAvailable, setIsCashoutAvailable] = useState(false);
     const [betAmount, setBetAmount] = useState(0);
     const [autoMode, setAutoMode] = useState(false);
     const [autoMultiplier, setAutoMultiplier] = useState('');
@@ -120,79 +168,368 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
     const [gameState, setGameState] = useState<'waiting' | 'inProgress' | 'crashed'>('waiting');
     const [cashoutToken, setCashoutToken] = useState<string | null>(null);
 
-    // Local reset function for this specific section
-    const localResetBettingState = useCallback(() => {
-      setIsCashout(false);
+    // Add debug state to track the bet flow
+    const [debugInfo, setDebugInfo] = useState<{
+      lastBetTime?: number,
+      lastBetAmount?: number,
+      betResponseReceived?: boolean,
+      errors?: string[]
+    }>({});
+
+    // Local reset function defined first to avoid initialization issues
+    const localResetBettingState = () => {
+      setIsCashoutAvailable(false);
       setBetAmount(0);
       setValue('');
       setCurrentBetId(null);
       setCurrentMultiplier(1);
       setHasActiveBet(false);
       setIsProcessingBet(false);
-      setGameState('waiting');
-      setCashoutToken(null);
-    }, [setValue]);
+      setCashoutToken(null); 
+      // Don't reset game state here as it should come from the server
+    };
+
+    // Enhance the handleCashout function with more robust error handling and debug info
+    const handleCashout = async () => {
+      console.log(`⚡ Cashout attempt with betId: ${currentBetId || 'NONE'}`);
+      
+      // Track when the last cashout attempt was made
+      const attemptTime = Date.now();
+      setDebugInfo(prev => ({
+        ...prev,
+        lastCashoutAttempt: attemptTime
+      }));
+      
+      // If no currentBetId, try to get the most recent bet from bet service
+      if (!currentBetId) {
+        const mostRecentBet = betService.getCurrentBet();
+        if (mostRecentBet?.betId) {
+          console.log(`Found most recent bet ID: ${mostRecentBet.betId}`);
+          setCurrentBetId(mostRecentBet.betId);
+          setHasActiveBet(true);
+          
+          // Try cashout with this bet
+          try {
+            const response = await betService.unifiedCashout(mostRecentBet.betId, currentMultiplier);
+            
+            if (response.success) {
+              toast.success(`Cashed out successfully!`);
+              localResetBettingState();
+            } else {
+              toast.error(response.message || 'Cashout failed');
+            }
+          } catch (error) {
+            console.error('Cashout error with recovered betId:', error);
+            toast.error(error instanceof Error ? error.message : 'Error during cashout');
+          }
+          return;
+        }
+        
+        console.error("⚠️ CASHOUT ATTEMPTED - NO BET REFERENCE ID AVAILABLE");
+        toast.error('No active bet found. Please place a bet first.');
+        return;
+      }
+      
+      try {
+        console.log(`Attempting to cashout bet with ID: ${currentBetId}`);
+        
+        // Let the backend handle validation - simplified approach
+        const response = await betService.unifiedCashout(currentBetId, currentMultiplier);
+        
+        if (response.success) {
+          toast.success(`Cashed out successfully!`);
+          localResetBettingState();
+        } else {
+          // Check for specific reference ID errors
+          if (response.error?.includes('reference') || response.message?.includes('reference')) {
+            console.error(`⚠️ CASHOUT FAILED - REFERENCE ID NOT AVAILABLE: ${currentBetId}`);
+            toast.error(`Invalid bet reference ID: ${currentBetId}`);
+          } else {
+            toast.error(response.message || 'Cashout failed');
+          }
+        }
+      } catch (error) {
+        console.error('Cashout error:', error);
+        
+        // Log specifically for reference ID issues
+        if (error instanceof Error && 
+            (error.message.includes('reference') || error.message.includes('Invalid bet'))) {
+          console.error(`⚠️ CASHOUT FAILED - REFERENCE ID NOT AVAILABLE: ${currentBetId}`);
+          toast.error(`Invalid bet reference ID: ${currentBetId}`);
+        } else {
+          toast.error(error instanceof Error ? error.message : 'Error during cashout');
+        }
+      }
+    };
+
+    // Modify handlePlaceBet for better bet tracking
+    const handlePlaceBet = async () => {
+      // If in cashout state, handle cashout
+      if (hasActiveBet && (isCashoutAvailable || gameState === 'inProgress')) {
+        handleCashout();
+        return;
+      }
+    
+      const currentBetAmount = Number(value);
+      
+      // Validate bet amount
+      if (currentBetAmount <= 0) {
+        toast.error('Please enter a valid bet amount');
+        return;
+      }
+    
+      // IMMEDIATELY update UI state for instant feedback
+      setIsProcessingBet(true);
+      
+      // Track the bet attempt in debug state
+      setDebugInfo({
+        lastBetTime: Date.now(),
+        lastBetAmount: currentBetAmount,
+        betResponseReceived: false,
+        errors: []
+      });
+      
+      try {
+        // Place bet with auto mode settings if needed
+        const betOptions: BetDetails = {
+          amount: currentBetAmount,
+          autoCashoutMultiplier: autoMode ? parseFloat(autoMultiplier) : undefined
+        };
+    
+        // Initiate bet placement with improved callback handling
+        betService.placeBet(betOptions)
+          .then(response => {
+            // Update debug info about response
+            setDebugInfo(prev => ({
+              ...prev,
+              betResponseReceived: true,
+              betResponseSuccess: response.success,
+              betResponseTime: Date.now()
+            }));
+            
+            if (response.success) {
+              const betId = response.data?.betId;
+              if (betId) {
+                console.log(`✅ Bet placed successfully: ${betId}`);
+                // Update all relevant state variables
+                setCurrentBetId(betId);
+                setHasActiveBet(true);
+                setBetAmount(currentBetAmount);
+                setIsProcessingBet(false);
+                
+                // Notify user
+                toast.success('Bet placed successfully');
+                
+                // IMPORTANT: Since we're enabling cashout right away for testing
+                // This would normally be controlled by the game state/server
+                setIsCashoutAvailable(true);
+              } else {
+                console.error("⚠️ Bet response success but no betId returned");
+                toast.error('Server error: No bet ID returned');
+                localResetBettingState();
+              }
+            } else {
+              console.error("❌ Bet placement failed:", response.message);
+              toast.error(response.message || 'Failed to place bet');
+              localResetBettingState();
+            }
+          })
+          .catch(error => {
+            console.error('❌ Bet placement error:', error);
+            
+            // Update debug info
+            setDebugInfo(prev => ({
+              ...prev,
+              betResponseReceived: true,
+              errors: [...(prev.errors || []), error.message || 'Unknown error']
+            }));
+            
+            toast.error(error.message || 'Failed to place bet');
+            localResetBettingState();
+          });
+      } catch (error) {
+        console.error('❌ Immediate bet error:', error);
+        localResetBettingState();
+      }
+    };
+
+    // Force enable cashout for debugging - uncomment to test cashout functionality
+    useEffect(() => {
+      if (hasActiveBet) {
+        console.log(`DEBUG: Force-checking cashout availability for bet ${currentBetId}`);
+        // Force cashout to be available after 5 seconds for testing
+        const debugTimer = setTimeout(() => {
+          console.log(`DEBUG: Force-enabling cashout for active bet ${currentBetId}`);
+          setIsCashoutAvailable(true);
+        }, 5000);
+        
+        return () => clearTimeout(debugTimer);
+      }
+    }, [hasActiveBet, currentBetId]);
 
     // Socket event handlers specific to this section
     useEffect(() => {
+      console.log(`Setting up socket event handlers for section ${section}, currentBetId: ${currentBetId}`);
+
+      const socketInstance = betService.getSocketInstance();
+      
       const handleGameStateChange = (state: string) => {
+        console.log(`🎮 Game state changed to ${state} for section ${section}`);
         setGameState(state as 'waiting' | 'inProgress' | 'crashed');
+        
+        // Enable cashout during in-progress state
+        if (state === 'inProgress' && hasActiveBet) {
+          console.log(`✅ Auto-enabling cashout for bet ${currentBetId} because game is in progress`);
+          setIsCashoutAvailable(true);
+          
+          toast.success('Cashout available (game in progress)', {
+            position: 'bottom-right',
+            duration: 2000
+          });
+        }
+        
+        // Reset betting state when game ends or returns to waiting
         if (state === 'crashed' || state === 'waiting') {
+          console.log(`🔄 Resetting betting state for section ${section} because game ${state}`);
           localResetBettingState();
         }
       };
 
-      const handleBetSuccess = (response: BetPlacementResponse) => {
-        if (response.success && response.data?.betId) {
-          setCurrentBetId(response.data.betId);
-          setHasActiveBet(true);
-          setIsProcessingBet(true);
-          if (autoMode && autoMultiplier) {
-            setAutoCashoutSet(true);
-          }
-        }
-      };
-
-      const handleBetError = (error: { message: string }) => {
-        // Only reset this section if it's processing a bet
-        if (isProcessingBet) {
-          console.error('Bet Error:', error);
-          toast.error(error.message || 'Bet placement failed');
-          setIsProcessingBet(false);
-        }
-      };
-
-      const handleMultiplierUpdate = (multiplier: number) => {
-        if (hasActiveBet) {
-          setCurrentMultiplier(multiplier);
-        }
-      };
-
+      // Direct cashout activation handler with enhanced debugging
       const handleActivateCashout = (data: { token: string; betId: string }) => {
-        console.log('Received activateCashout event:', data);
-        if (data.betId === currentBetId) {
-          console.log('Setting cashout token:', data.token);
+        console.log(`🔔 Socket CASHOUT ACTIVATION received:`, data);
+        
+        // Check if this activation is for our current bet
+        if (currentBetId === data.betId) {
+          console.log(`✅ ACTIVATING CASHOUT for bet ${data.betId}`);
           setCashoutToken(data.token);
-          setIsCashout(true);
+          setIsCashoutAvailable(true);
+          
+          toast.success('Cashout available!', {
+            position: 'top-right',
+            duration: 3000,
+            style: { background: 'orange', color: 'white' }
+          });
+          
+          // Debug: Try to trigger button highlight with CSS animation
+          try {
+            const cashoutBtn = document.querySelector(`[data-section="${section}"] .cashout-btn`);
+            if (cashoutBtn) {
+              cashoutBtn.classList.add('pulse-animation');
+            }
+          } catch (e) {
+            console.error('Failed to add animation class:', e);
+          }
+        } else {
+          console.log(`❌ Cashout activation received for bet ${data.betId} but current bet is ${currentBetId}`);
         }
       };
 
-      const socketInstance = betService.getSocketInstance();
-      
-      socketInstance.on('gameStateChange', handleGameStateChange);
-      socketInstance.on('betPlaced', handleBetSuccess);
-      socketInstance.on('betError', handleBetError);
-      socketInstance.on('multiplierUpdate', handleMultiplierUpdate);
-      socketInstance.on('activateCashout', handleActivateCashout);
-
-      return () => {
-        socketInstance.off('gameStateChange', handleGameStateChange);
-        socketInstance.off('betPlaced', handleBetSuccess);
-        socketInstance.off('betError', handleBetError);
-        socketInstance.off('multiplierUpdate', handleMultiplierUpdate);
-        socketInstance.off('activateCashout', handleActivateCashout);
+      // Listen for custom event from window
+      const handleCustomCashoutActivation = (event: any) => {
+        console.log(`🔔 Custom CASHOUT ACTIVATION event received:`, event.detail);
+        const { token, betId } = event.detail;
+        
+        // Check if this activation is for our current bet
+        if (currentBetId === betId) {
+          console.log(`✅ ACTIVATING CASHOUT via custom event for bet ${betId}`);
+          setCashoutToken(token);
+          setIsCashoutAvailable(true);
+          
+          toast.success('Cashout available (custom event)!', {
+            position: 'top-right',
+            duration: 3000,
+            style: { background: 'orange', color: 'white' }
+          });
+        }
       };
-    }, [section, autoMode, autoMultiplier, currentBetId, autoCashoutSet, isProcessingBet, hasActiveBet, isCashout, cashoutToken, localResetBettingState]);
+
+      // Set up all socket event listeners with more explicit logging
+      console.log(`📌 Adding socket event listeners for section ${section}`);
+      socketInstance.on('gameStateChange', handleGameStateChange);
+      socketInstance.on('activateCashout', handleActivateCashout);
+      
+      // Also listen for the custom event
+      if (typeof window !== 'undefined') {
+        window.addEventListener('cashoutActivated', handleCustomCashoutActivation);
+      }
+      
+      // Log socket connection status every 5 seconds
+      const connectionChecker = setInterval(() => {
+        const isConnected = socketInstance.connected;
+        console.log(`Socket connection status: ${isConnected ? 'CONNECTED ✅' : 'DISCONNECTED ❌'}`);
+        
+        // If we have an active bet but socket isn't connected, try to reconnect
+        if (!isConnected && hasActiveBet) {
+          console.log('Socket disconnected but we have active bets - attempting to reconnect');
+          betService.connectSocketAfterLogin();
+        }
+      }, 5000);
+
+      // Cleanup function
+      return () => {
+        console.log(`📌 Removing socket event listeners for section ${section}`);
+        socketInstance.off('gameStateChange', handleGameStateChange);
+        socketInstance.off('activateCashout', handleActivateCashout);
+        
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('cashoutActivated', handleCustomCashoutActivation);
+        }
+        
+        clearInterval(connectionChecker);
+      };
+    }, [section, currentBetId, hasActiveBet]); // Only important dependencies
+
+    // Add clear debugging for button states
+    useEffect(() => {
+      if (hasActiveBet) {
+        console.log(`🎮 Current game state: ${gameState}`);
+        console.log(`💰 Current bet status:`, {
+          id: currentBetId,
+          amount: betAmount,
+          canCashout: isCashoutAvailable,
+          gameInProgress: gameState === 'inProgress',
+          buttonEnabled: hasActiveBet && (isCashoutAvailable || gameState === 'inProgress')
+        });
+      }
+    }, [hasActiveBet, isCashoutAvailable, gameState, currentBetId, betAmount]);
+
+    // Safely check for existing bets when component mounts
+    useEffect(() => {
+      let isMounted = true;
+      
+      const checkForExistingBets = async () => {
+        try {
+          // Instead of making an API call, use the already fetched bets
+          const existingBet = currentBets[section === 'first' ? 0 : 1];
+          
+          if (existingBet && isMounted) {
+            console.log(`Found existing bet for ${section}:`, existingBet);
+            setCurrentBetId(existingBet.id);
+            setBetAmount(existingBet.amount);
+            setHasActiveBet(true);
+            
+            // If auto cashout was set
+            if (existingBet.auto_cashout_multiplier) {
+              setAutoMode(true);
+              setAutoMultiplier(existingBet.auto_cashout_multiplier.toString());
+              setAutoCashoutSet(true);
+            }
+          }
+        } catch (error) {
+          console.error('Error processing existing bets:', error);
+        }
+      };
+      
+      // Only run if we have current bets data
+      if (currentBets && currentBets.length > 0) {
+        checkForExistingBets();
+      }
+      
+      return () => {
+        isMounted = false;
+      };
+    }, [currentBets, section]); // Only depend on currentBets and section
 
     const handleAutoMultiplierChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const inputValue = e.target.value;
@@ -222,65 +559,8 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
       }
     };
 
-    const handlePlaceBet = async () => {
-      const currentBetAmount = Number(value);
-      
-      // If in cashout state, handle cashout
-      if (isCashout) {
-        try {
-          const cashoutOptions = {
-            token: cashoutToken || '',
-            betId: currentBetId || '',
-            currentMultiplier: currentMultiplier
-          };
-          
-          const response = await betService.cashoutBet(cashoutOptions);
-          
-          if (response.success) {
-            toast.success('Cashout successful!');
-            localResetBettingState();
-          } else {
-            toast.error(response.message || 'Failed to cashout');
-          }
-        } catch (error: any) {
-          console.error('Cashout error:', error);
-          toast.error(error.message || 'Failed to cashout');
-        }
-        return;
-      }
-
-      // Validate bet amount
-      if (currentBetAmount <= 0) {
-        toast.error('Please enter a valid bet amount');
-        return;
-      }
-
-      try {
-        // Place bet with auto mode settings if needed
-        const betOptions: BetDetails = {
-          amount: currentBetAmount,
-          autoCashoutMultiplier: autoMode ? parseFloat(autoMultiplier) : undefined
-        };
-
-        const response = await betService.placeBet(betOptions);
-        
-        if (response.success) {
-          setBetAmount(currentBetAmount);
-          setHasActiveBet(true);
-          setCurrentBetId(response.data?.betId || null);
-        } else {
-          toast.error(response.message || 'Failed to place bet');
-          localResetBettingState();
-        }
-      } catch (error: any) {
-        console.error('Bet placement error:', error);
-        toast.error(error.message || 'Failed to place bet');
-        localResetBettingState();
-      }
-    };
-
     return (
-      <div className="bg-slate-800 p-4 rounded-lg space-y-0.5">
+      <div className="flex flex-col space-y-2" data-section={section}>
         <h2 className="text-gray-400 text-[10px] -mt-1 mb-1">{section === 'first' ? 'First Bet' : 'Second Bet'}</h2>
         
         <div className="grid grid-cols-[auto_1fr_auto] items-center space-x-2 mb-1">
@@ -376,23 +656,42 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
           )}
         </div>
 
-        <button
-          onClick={handlePlaceBet}
-          className={`w-full py-2 max-sm:py-6 sm:py-4 rounded-lg transition-colors duration-300 text-[20px] font-bold uppercase tracking-wider shadow-md hover:shadow-lg ${
-            isCashout
-              ? 'bg-orange-500 hover:bg-orange-600' // Cashout state (orange)
-              : autoMode
-                ? 'bg-orange-500 hover:bg-orange-600' // Auto mode (orange)
-                : 'bg-green-500 hover:bg-green-600' // Default bet state (green)
-          } text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center`}
-        >
-          {isCashout 
-            ? 'CASHOUT' 
-            : autoMode 
-              ? 'BET AUTOCASHOUT' 
-              : `BET KSH${Number(value) > 0 ? Number(value).toLocaleString() : ''}`
-          }
-        </button>
+        <div className="flex space-x-2">
+          {/* Cashout Button - add classname for targeting and always make clickable */}
+          <button
+            onClick={handleCashout}
+            className={`cashout-btn w-1/2 py-2 max-sm:py-6 sm:py-4 rounded-lg transition-colors duration-300 text-[20px] font-bold uppercase tracking-wider shadow-md hover:shadow-lg
+              ${hasActiveBet 
+                ? 'bg-orange-500 hover:bg-orange-600' 
+                : 'bg-yellow-600 hover:bg-yellow-700'} 
+              text-white flex items-center justify-center`}
+          >
+            <span className="flex items-center">
+              CASHOUT {currentMultiplier.toFixed(2)}x
+              {hasActiveBet && 
+                <span className="ml-1 h-2 w-2 rounded-full bg-green-400 animate-pulse"></span>
+              }
+            </span>
+          </button>
+          
+          {/* Bet Button */}
+          <button
+            onClick={handlePlaceBet}
+            disabled={hasActiveBet && gameState !== 'inProgress'}
+            className={`w-1/2 py-2 max-sm:py-6 sm:py-4 rounded-lg transition-colors duration-300 text-[20px] font-bold uppercase tracking-wider shadow-md hover:shadow-lg ${
+              hasActiveBet
+                ? 'bg-gray-500 cursor-not-allowed opacity-50'
+                : autoMode
+                  ? 'bg-orange-500 hover:bg-orange-600' // Auto mode (orange)
+                  : 'bg-green-500 hover:bg-green-600' // Default bet state (green)
+            } text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center`}
+          >
+            {autoMode
+              ? 'BET AUTO'
+              : `BET ${Number(value) > 0 ? Number(value).toLocaleString() : ''}`
+            }
+          </button>
+        </div>
       </div>
     );
   };
@@ -417,13 +716,11 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
         <BetSection 
           section="first"
           balance={safeBalance}
-          isPlaying={false}
           onPlaceBet={placeBet}
         />
         <BetSection 
           section="second"
           balance={safeBalance}
-          isPlaying={false}
           onPlaceBet={placeBet}
         />
       </div>
@@ -669,9 +966,11 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
                           return;
                         }
                         
-                        // If a multiplier action is selected, adjust the value
-                        const adjustedValue = (parseFloat(baseBet) * parseFloat(e) || 1).toFixed(2);
-                        setWinMultiplier(adjustedValue);
+                        // If a multiplier action is selected, calculate the adjusted value
+                        const multiplier = parseFloat(e) || 0;
+                        const baseValue = parseFloat(baseBet) || 0;
+                        const adjustedValue = (baseValue * multiplier).toFixed(2);
+                        setWinMultiplier(e); // Store the multiplier input as-is
                       }}
                       className="w-full"
                       placeholder="Enter win multiplier"
@@ -741,9 +1040,8 @@ const BettingPanel: React.FC<BettingControlsProps> = ({
                           return;
                         }
                         
-                        // If a multiplier action is selected, adjust the value
-                        const adjustedValue = (parseFloat(baseBet) * parseFloat(e) || 1).toFixed(2);
-                        setLoseMultiplier(adjustedValue);
+                        // If a multiplier action is selected, store the value directly
+                        setLoseMultiplier(e);
                       }}
                       className="w-full"
                       placeholder="Enter lose multiplier"

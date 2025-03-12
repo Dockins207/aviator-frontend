@@ -19,6 +19,12 @@ const ProfilePage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [editMode, setEditMode] = useState(false);
+  
+  // New state for deposit and withdraw
+  const [depositAmount, setDepositAmount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [transactionError, setTransactionError] = useState('');
+  const [transactionSuccess, setTransactionSuccess] = useState('');
 
   useEffect(() => {
     const fetchProfileData = async () => {
@@ -56,6 +62,44 @@ const ProfilePage: React.FC = () => {
       minimumFractionDigits: 2, 
       maximumFractionDigits: 2 
     })}`;
+  };
+
+  const handleDeposit = async () => {
+    try {
+      setTransactionError('');
+      setTransactionSuccess('');
+      const amount = parseFloat(depositAmount);
+      
+      if (isNaN(amount) || amount <= 0) {
+        setTransactionError('Please enter a valid deposit amount');
+        return;
+      }
+
+      const result = await AuthService.depositFunds(amount);
+      setTransactionSuccess(`Deposit of KSH ${amount} successful. Transaction ID: ${result.transactionId}`);
+      setDepositAmount('');
+    } catch (error) {
+      setTransactionError(error instanceof Error ? error.message : 'Deposit failed');
+    }
+  };
+
+  const handleWithdraw = async () => {
+    try {
+      setTransactionError('');
+      setTransactionSuccess('');
+      const amount = parseFloat(withdrawAmount);
+      
+      if (isNaN(amount) || amount <= 0) {
+        setTransactionError('Please enter a valid withdrawal amount');
+        return;
+      }
+
+      const result = await AuthService.withdrawFunds(amount);
+      setTransactionSuccess(`Withdrawal of KSH ${amount} successful. Transaction ID: ${result.transactionId}`);
+      setWithdrawAmount('');
+    } catch (error) {
+      setTransactionError(error instanceof Error ? error.message : 'Withdrawal failed');
+    }
   };
 
   // Render loading state
@@ -98,7 +142,7 @@ const ProfilePage: React.FC = () => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={!editMode}
-                className={`w-full p-2 border rounded ${
+                className={`w-full p-2 border rounded text-black ${
                   editMode ? 'bg-white' : 'bg-gray-100'
                 }`}
               />
@@ -110,7 +154,7 @@ const ProfilePage: React.FC = () => {
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 disabled={!editMode}
-                className={`w-full p-2 border rounded ${
+                className={`w-full p-2 border rounded text-black ${
                   editMode ? 'bg-white' : 'bg-gray-100'
                 }`}
               />
@@ -123,6 +167,68 @@ const ProfilePage: React.FC = () => {
             <p className="text-2xl font-bold text-blue-600">
               {formatBalance(balance)}
             </p>
+          </div>
+
+          {/* Wallet Transactions Section */}
+          <div className="p-6 bg-gray-50">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Wallet Transactions</h3>
+            
+            {/* Transaction Feedback */}
+            {transactionError && (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                {transactionError}
+              </div>
+            )}
+            {transactionSuccess && (
+              <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                {transactionSuccess}
+              </div>
+            )}
+
+            {/* Deposit Section */}
+            <div className="mb-4">
+              <label className="block text-gray-700 font-bold mb-2">Deposit Funds</label>
+              <div className="flex">
+                <input
+                  type="number"
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  placeholder="Enter deposit amount"
+                  className="w-full p-2 border rounded-l text-black"
+                  min="0"
+                  step="0.01"
+                />
+                <button 
+                  onClick={handleDeposit}
+                  className="bg-green-500 text-white px-4 py-2 rounded-r hover:bg-green-600"
+                >
+                  Deposit
+                </button>
+              </div>
+            </div>
+
+            {/* Withdraw Section */}
+            <div>
+              <label className="block text-gray-700 font-bold mb-2">Withdraw Funds</label>
+              <div className="flex">
+                <input
+                  type="number"
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  placeholder="Enter withdrawal amount"
+                  className="w-full p-2 border rounded-l text-black"
+                  min="0"
+                  step="0.01"
+                  max={balance}
+                />
+                <button 
+                  onClick={handleWithdraw}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-r hover:bg-blue-600"
+                >
+                  Withdraw
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Action Buttons */}

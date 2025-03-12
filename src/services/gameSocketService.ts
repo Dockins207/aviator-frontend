@@ -5,7 +5,7 @@ import { AuthService } from '@/app/lib/auth';
 // Game state interface for Aviator game
 export interface GameState {
   gameId?: string;
-  status: 'waiting' | 'flying' | 'crashed';
+  status: 'betting' | 'flying' | 'crashed';
   multiplier: number;
   startTime?: number;
   crashPoint?: number;
@@ -17,7 +17,7 @@ class GameSocketService {
   private static instance: GameSocketService;
   private socket: Socket | null = null;
   private gameState: GameState = {
-    status: 'waiting',
+    status: 'betting',
     multiplier: 1,
     currentMultiplier: 1
   };
@@ -69,14 +69,14 @@ class GameSocketService {
     this.socket.on('multiplierUpdate', (multiplier: number) => {
       this.updateGameState({ 
         currentMultiplier: multiplier,
-        status: multiplier > 1 ? 'flying' : 'waiting'
+        status: multiplier > 1 ? 'flying' : 'betting'
       });
     });
 
     // Listen for game start
     this.socket.on('gameStarted', () => {
       this.updateGameState({ 
-        status: 'waiting', 
+        status: 'betting', 
         multiplier: 1,
         currentMultiplier: 1,
         startTime: Date.now()
